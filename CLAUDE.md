@@ -30,7 +30,7 @@
 
 - `openai(modelId)` → 默认走 `/v1/responses` 端点（OpenAI 新 API）
 - `openai.chat(modelId)` → 走 `/v1/chat/completions` 端点（兼容旧接口）
-- `convertToModelMessages()` 是同步函数，不需要 `await`
+- `convertToModelMessages()` 是异步函数，需要 `await`
 - 环境变量：系统环境变量优先级**高于** `.env.local`，调试时注意检查
 
 ### 环境变量加载优先级（Next.js）
