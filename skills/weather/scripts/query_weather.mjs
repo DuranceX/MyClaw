@@ -2,7 +2,7 @@
 /**
  * 和风天气查询脚本
  * 推荐用法（利用 Node.js 20.6+ 内置 --env-file，无需安装 dotenv）：
- *   node --env-file=src/web/.env.local skills/weather/scripts/query_weather.mjs --city 北京
+ *   node --env-file=packages/web/.env.local skills/weather/scripts/query_weather.mjs --city 北京
  *
  * 依赖环境变量：
  *   QWEATHER_API_KEY  — 和风天气 API Key
@@ -13,22 +13,28 @@ import { parseArgs } from 'node:util'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-// 若环境变量未注入，自动尝试读取 src/web/.env.local（纯 Node 内置，无需 dotenv）
+const fallbackEnvPaths = [
+  resolve(process.cwd(), 'packages/server/.env'),
+  resolve(process.cwd(), 'packages/web/.env.local'),
+]
+
+// 若环境变量未注入，自动尝试读取 server/web 的本地 env 文件（纯 Node 内置，无需 dotenv）
 if (!process.env.QWEATHER_API_KEY) {
-  try {
-    const envPath = resolve(process.cwd(), 'src/web/.env.local')
-    const lines = readFileSync(envPath, 'utf-8').split('\n')
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (!trimmed || trimmed.startsWith('#')) continue
-      const eq = trimmed.indexOf('=')
-      if (eq === -1) continue
-      const key = trimmed.slice(0, eq).trim()
-      const val = trimmed.slice(eq + 1).trim().replace(/^['"]|['"]$/g, '')
-      if (!(key in process.env)) process.env[key] = val
+  for (const envPath of fallbackEnvPaths) {
+    try {
+      const lines = readFileSync(envPath, 'utf-8').split('\n')
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed || trimmed.startsWith('#')) continue
+        const eq = trimmed.indexOf('=')
+        if (eq === -1) continue
+        const key = trimmed.slice(0, eq).trim()
+        const val = trimmed.slice(eq + 1).trim().replace(/^['"]|['"]$/g, '')
+        if (!(key in process.env)) process.env[key] = val
+      }
+    } catch {
+      // 文件不存在时静默跳过，后续由环境变量检查兜底报错
     }
-  } catch {
-    // 文件不存在时静默跳过，后续由环境变量检查兜底报错
   }
 }
 
@@ -69,7 +75,7 @@ async function fetchJson(url) {
 
 // Step 1: 城市名 → LocationID（GEO API 固定走 geoapi.qweather.com）
 async function lookupLocation(cityName) {
-  const url = new URL('https://geoapi.qweather.com/v2/city/lookup')
+  const url = new URL(`https://${API_HOST}/geo/v2/city/lookup`)
   url.searchParams.set('location', cityName)
   url.searchParams.set('range', 'cn')
   url.searchParams.set('number', '1')

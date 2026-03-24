@@ -23,10 +23,10 @@ description: >
 
 ```bash
 # 推荐：使用 Node.js 20.6+ 内置的 --env-file，无需安装任何依赖
-node --env-file=src/web/.env.local skills/weather/scripts/query_weather.mjs --city 北京
+node --env-file=packages/web/.env.local skills/weather/scripts/query_weather.mjs --city 北京
 ```
 
-脚本也内置了自动 fallback：若未通过 `--env-file` 注入，会自动尝试读取 `src/web/.env.local`，所以也可以直接调用：
+脚本也内置了自动 fallback：若未通过 `--env-file` 注入，会自动尝试读取 `packages/server/.env` 和 `packages/web/.env.local`，所以也可以直接调用：
 
 ```bash
 node skills/weather/scripts/query_weather.mjs --city 北京

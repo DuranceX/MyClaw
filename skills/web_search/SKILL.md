@@ -26,10 +26,10 @@ description: >
 node skills/web_search/scripts/search.mjs --query "关键词"
 ```
 
-读取项目 .env.local 中的 API Key：
+显式读取 `packages/web/.env.local` 中的 API Key：
 
 ```bash
-node -r dotenv/config skills/web_search/scripts/search.mjs --query "关键词" dotenv_config_path=src/web/.env.local
+node --env-file=packages/web/.env.local skills/web_search/scripts/search.mjs --query "关键词"
 ```
 
 ## 依赖的环境变量

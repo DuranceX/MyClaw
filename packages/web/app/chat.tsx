@@ -45,6 +45,9 @@ export default function Chat() {
 
         {messages.map(m => {
           const isUser = m.role === 'user';
+          type Part = typeof m.parts[number];
+          type TextPart = Extract<Part, { type: 'text' }>;
+          type ToolPart = Extract<Part, { type: `tool-${string}` }>;
 
           // ── 用户消息：单气泡 ──────────────────────────────────────────────
           if (isUser) {
@@ -62,10 +65,6 @@ export default function Chat() {
 
           // ── AI 消息：按 step-start 拆分成多个气泡 ────────────────────────
 
-          // 每遇到 step-start 就开一个新分组
-          type Part = typeof m.parts[number];
-          type ToolPart = { type: `tool-${string}`; toolCallId: string; state: string; input: any; output: any };
-
           const steps = m.parts.reduce<Part[][]>((acc, part) => {
             if (part.type === 'step-start') {
               acc.push([]);
@@ -77,7 +76,9 @@ export default function Chat() {
 
           // 过滤掉空 step（流式传输尾部可能产生空 step-start）
           const nonEmptySteps = steps.filter(s =>
-            s.some(p => p.type === 'text' ? (p as any).text.trim() : p.type.startsWith('tool-'))
+            s.some(p => p.type === 'text'
+              ? (p as TextPart).text.trim().length > 0
+              : p.type.startsWith('tool-'))
           );
 
           return nonEmptySteps.map((stepParts, stepIndex) => (

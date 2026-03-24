@@ -2,7 +2,7 @@
 /**
  * Serper 网络搜索脚本（Google 搜索，中文优化）
  * 推荐用法（Node.js 20.6+，无需 dotenv）：
- *   node --env-file=src/web/.env.local skills/web_search/scripts/search.mjs --query "关键词"
+ *   node --env-file=packages/web/.env.local skills/web_search/scripts/search.mjs --query "关键词"
  *
  * 依赖环境变量：
  *   SERPER_API_KEY — serper.dev 的 API Key
@@ -13,22 +13,28 @@ import { parseArgs } from 'node:util'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-// 若环境变量未注入，自动尝试读取 src/web/.env.local
+const fallbackEnvPaths = [
+  resolve(process.cwd(), 'packages/server/.env'),
+  resolve(process.cwd(), 'packages/web/.env.local'),
+]
+
+// 若环境变量未注入，自动尝试读取 server/web 的本地 env 文件
 if (!process.env.SERPER_API_KEY) {
-  try {
-    const envPath = resolve(process.cwd(), 'src/web/.env.local')
-    const lines = readFileSync(envPath, 'utf-8').split('\n')
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (!trimmed || trimmed.startsWith('#')) continue
-      const eq = trimmed.indexOf('=')
-      if (eq === -1) continue
-      const key = trimmed.slice(0, eq).trim()
-      const val = trimmed.slice(eq + 1).trim().replace(/^['"]|['"]$/g, '')
-      if (!(key in process.env)) process.env[key] = val
+  for (const envPath of fallbackEnvPaths) {
+    try {
+      const lines = readFileSync(envPath, 'utf-8').split('\n')
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed || trimmed.startsWith('#')) continue
+        const eq = trimmed.indexOf('=')
+        if (eq === -1) continue
+        const key = trimmed.slice(0, eq).trim()
+        const val = trimmed.slice(eq + 1).trim().replace(/^['"]|['"]$/g, '')
+        if (!(key in process.env)) process.env[key] = val
+      }
+    } catch {
+      // 文件不存在时静默跳过
     }
-  } catch {
-    // 文件不存在时静默跳过
   }
 }
 

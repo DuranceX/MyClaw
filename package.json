@@ -1,0 +1,15 @@
+{
+  "name": "ai-chat-bot-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n web,api -c blue,green \"npm run dev:web\" \"npm run dev:api\"",
+    "dev:web": "cd packages/web && npm run dev",
+    "dev:api": "cd packages/server && .venv/bin/python -m uvicorn app.main:app --reload --port 8000"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
