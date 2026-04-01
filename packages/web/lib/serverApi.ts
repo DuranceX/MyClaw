@@ -13,7 +13,7 @@ export interface SkillEntry {
  * 返回值：
  *   当前配置的后端地址；开发环境下默认回退到本地 FastAPI 服务。
  */
-function getServerBaseUrl(): string {
+export function getServerBaseUrl(): string {
   return process.env.AI_SERVER_BASE_URL ?? 'http://127.0.0.1:8000'
 }
 

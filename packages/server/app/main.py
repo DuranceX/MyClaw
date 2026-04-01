@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from typing import Dict
 
 from app.config import PROJECT_ROOT, get_allowed_origins
-from app.models import ExecCommandRequest, ReadFileRequest, ReadFileResponse
+from app.models import ChatRequest, ExecCommandRequest, ReadFileRequest, ReadFileResponse
+from app.services.chat import stream_chat
 from app.services.commands import run_command
 from app.services.files import read_repo_file
 from app.services.skills import list_skills
@@ -78,3 +80,19 @@ def exec_command(payload: ExecCommandRequest):
     if not payload.command.strip():
         raise HTTPException(status_code=400, detail="Command cannot be empty.")
     return run_command(payload.command, payload.timeout_ms)
+
+
+@app.post("/api/chat")
+def chat(payload: ChatRequest):
+    """通过 Python 后端统一处理 LLM 调用、工具执行和流式消息输出。"""
+    # 保持与 AI SDK 路由一致的响应头，这样 `useChat()` 还能按原来的方式消费这个接口。
+    return StreamingResponse(
+        stream_chat(payload),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "x-vercel-ai-ui-message-stream": "v1",
+            "x-accel-buffering": "no",
+        },
+    )
