@@ -1,30 +1,36 @@
 // app/chat.tsx
 'use client';
 
-import { useChat } from '@ai-sdk/react'
-import { useState, useRef, useEffect } from 'react';
+import { useChat } from '@ai-sdk/react';
+import { useEffect, useRef, useState } from 'react';
+
+import { ProgressTrail } from './components/chat/ProgressTrail';
+import { ToolCard } from './components/chat/ToolCard';
+import { getCurrentSessionMessages, getProgressStages } from './components/chat/progress';
+import type { ToolLikePart } from '../lib/types/types';
 
 export default function Chat() {
   const [input, setInput] = useState('');
-  const { messages, sendMessage, setMessages, status } = useChat()
+  const { messages, sendMessage, setMessages, status, error } = useChat();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isLoading = status === 'streaming' || status === 'submitted';
+  const currentSessionMessages = getCurrentSessionMessages(messages);
+  const progressStages = getProgressStages(currentSessionMessages);
+  const firstAssistantInCurrentSession = currentSessionMessages.find(message => message.role === 'assistant');
+  const showProgressInReply = Boolean(firstAssistantInCurrentSession);
 
-  // 新消息到来时自动滚动到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50 dark:bg-zinc-950">
-      {/* 顶部标题栏 */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm">
+    <div className="flex h-screen flex-col bg-gray-50 dark:bg-zinc-950">
+      <header className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <h1 className="text-lg font-semibold text-gray-800 dark:text-zinc-100">🤖 AI 助手</h1>
         <button
           onClick={() => setMessages([])}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-500 dark:text-zinc-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 rounded-lg transition-colors"
+          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-gray-500 transition-colors hover:bg-red-50 hover:text-red-500 dark:text-zinc-400 dark:hover:bg-red-950 dark:hover:text-red-400"
         >
-          {/* 垃圾桶图标 */}
           <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="3 6 5 6 21 6" />
             <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
@@ -35,37 +41,33 @@ export default function Chat() {
         </button>
       </header>
 
-      {/* 消息列表 */}
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+      <div className="flex-1 space-y-4 overflow-y-auto px-4 py-6">
         {messages.length === 0 && (
-          <div className="text-center text-gray-400 dark:text-zinc-600 mt-20 text-sm">
+          <div className="mt-20 text-center text-sm text-gray-400 dark:text-zinc-600">
             发送消息开始对话
           </div>
         )}
 
-        {messages.map(m => {
-          const isUser = m.role === 'user';
-          type Part = typeof m.parts[number];
+        {messages.map(message => {
+          const isUser = message.role === 'user';
+          type Part = typeof message.parts[number];
           type TextPart = Extract<Part, { type: 'text' }>;
           type ToolPart = Extract<Part, { type: `tool-${string}` }>;
 
-          // ── 用户消息：单气泡 ──────────────────────────────────────────────
           if (isUser) {
             return (
-              <div key={m.id} className="flex justify-end">
-                <div className="max-w-[75%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed shadow-sm bg-indigo-500 text-white rounded-br-sm">
-                  {m.parts.map((part, i) => part.type === 'text' && <span key={i}>{part.text}</span>)}
+              <div key={message.id} className="flex justify-end">
+                <div className="max-w-[75%] rounded-2xl rounded-br-sm bg-indigo-500 px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-white shadow-sm">
+                  {message.parts.map((part, index) => part.type === 'text' && <span key={index}>{part.text}</span>)}
                 </div>
-                <div className="w-8 h-8 rounded-full bg-gray-300 dark:bg-zinc-600 flex items-center justify-center text-gray-600 dark:text-zinc-200 text-sm ml-2 mt-1 shrink-0">
+                <div className="ml-2 mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-300 text-sm text-gray-600 dark:bg-zinc-600 dark:text-zinc-200">
                   你
                 </div>
               </div>
             );
           }
 
-          // ── AI 消息：按 step-start 拆分成多个气泡 ────────────────────────
-
-          const steps = m.parts.reduce<Part[][]>((acc, part) => {
+          const steps = message.parts.reduce<Part[][]>((acc, part) => {
             if (part.type === 'step-start') {
               acc.push([]);
             } else if (acc.length > 0) {
@@ -74,82 +76,66 @@ export default function Chat() {
             return acc;
           }, []);
 
-          // 过滤掉空 step（流式传输尾部可能产生空 step-start）
-          const nonEmptySteps = steps.filter(s =>
-            s.some(p => p.type === 'text'
-              ? (p as TextPart).text.trim().length > 0
-              : p.type.startsWith('tool-'))
-          );
+          const nonEmptySteps = steps.filter(step => step.some(part => part.type === 'text' || part.type.startsWith('tool-')));
 
-          return nonEmptySteps.map((stepParts, stepIndex) => (
-            <div key={`${m.id}-${stepIndex}`} className="flex justify-start">
-              {/* 第一个 step 显示头像，后续 step 用等宽占位保持对齐 */}
-              {stepIndex === 0
-                ? <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white text-sm mr-2 mt-1 shrink-0">AI</div>
-                : <div className="w-8 mr-2 shrink-0" />
-              }
+          return nonEmptySteps.map((stepParts, stepIndex) => {
+            const textParts = stepParts.filter((part): part is TextPart => part.type === 'text');
+            const toolParts = stepParts.filter((part): part is ToolPart => part.type.startsWith('tool-'));
+            const hasTextCard = textParts.length > 0;
+            const textContent = textParts.map(part => part.text).join('');
 
-              <div className="max-w-[75%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed shadow-sm bg-white dark:bg-zinc-800 text-gray-800 dark:text-zinc-100 rounded-bl-sm">
-                {stepParts.map((part, i) => {
-                  if (part.type === 'text') {
-                    return <span key={i}>{part.text}</span>;
-                  }
-                  if (part.type.startsWith('tool-')) {
-                    const p = part as ToolPart;
-                    const toolName = p.type.slice(5);
+            return (
+              <div key={`${message.id}-${stepIndex}`} className="flex justify-start">
+                {stepIndex === 0 ? (
+                  <div className="mr-2 mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-500 text-sm text-white">
+                    AI
+                  </div>
+                ) : (
+                  <div className="mr-2 w-8 shrink-0" />
+                )}
 
-                    if (toolName === 'get_weather') {
-                      if (p.state !== 'output-available') {
-                        return (
-                          <div key={p.toolCallId} className="flex items-center gap-2 p-3 bg-blue-50 text-blue-600 rounded-lg animate-pulse my-2 border border-blue-200">
-                            <span className="animate-spin">⏳</span>
-                            <span>正在调用气象卫星，查询 <strong>{p.input?.city}</strong> 的天气...</span>
-                          </div>
-                        );
-                      }
-                      return (
-                        <div key={p.toolCallId} className="p-5 bg-white border border-gray-200 shadow-sm rounded-xl my-2 min-w-50">
-                          <div className="text-xs text-gray-500 mb-2 font-bold uppercase tracking-wider">
-                            📍 {p.input.city} 天气实况
-                          </div>
-                          <div className="flex items-center justify-between mt-2">
-                            <span className="text-4xl font-black text-gray-800">{p.output.temp}°C</span>
-                            <span className="text-2xl ml-4">{p.output.condition}</span>
-                          </div>
-                        </div>
-                      );
-                    }
+                <div className="max-w-[75%] space-y-2">
+                  {showProgressInReply && firstAssistantInCurrentSession?.id === message.id && stepIndex === 0 && (
+                    <div className="rounded-2xl rounded-bl-sm border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+                      <ProgressTrail stages={progressStages} isLoading={isLoading} />
+                    </div>
+                  )}
 
-                    if (toolName === 'web_search') {
-                      if (p.state !== 'output-available') {
-                        return (
-                          <div key={p.toolCallId} className="flex items-center gap-2 p-3 bg-green-50 text-green-600 rounded-lg animate-pulse my-2 border border-green-200">
-                            <span className="animate-spin">⏳</span>
-                            <span>正在搜索互联网，查询 <strong>{p.input?.query}</strong> 的最新信息...</span>
-                          </div>
-                        );
-                      }
-                      return <div key={p.toolCallId}>{p.output}</div>;
-                    }
-                  }
-                  return null;
-                })}
+                  {hasTextCard && (
+                    <div className="rounded-2xl rounded-bl-sm bg-white px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-gray-800 shadow-sm dark:bg-zinc-800 dark:text-zinc-100">
+                      {textContent}
+                    </div>
+                  )}
+
+                  {toolParts.map(part => <ToolCard key={part.toolCallId} part={part as ToolLikePart} />)}
+                </div>
               </div>
-            </div>
-          ));
+            );
+          });
         })}
 
-        {/* 加载动画 */}
-        {isLoading && (
+        {error && (
           <div className="flex justify-start">
-            <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white text-sm mr-2 shrink-0">
+            <div className="mr-2 mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-500 text-sm text-white">
               AI
             </div>
-            <div className="bg-white dark:bg-zinc-800 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm">
-              <div className="flex gap-1 items-center h-4">
-                <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:0ms]" />
-                <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:150ms]" />
-                <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:300ms]" />
+            <div className="max-w-[75%] rounded-2xl rounded-bl-sm border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm dark:border-red-900 dark:bg-red-950/60 dark:text-red-200">
+              <div className="mb-1 font-medium">请求失败</div>
+              <div className="break-words whitespace-pre-wrap">{error.message}</div>
+            </div>
+          </div>
+        )}
+
+        {isLoading && (
+          <div className="flex justify-start">
+            <div className="mr-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-500 text-sm text-white">
+              AI
+            </div>
+            <div className="rounded-2xl rounded-bl-sm bg-white px-4 py-3 shadow-sm dark:bg-zinc-800">
+              <div className="flex h-4 items-center gap-1">
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:0ms]" />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:150ms]" />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:300ms]" />
               </div>
             </div>
           </div>
@@ -158,27 +144,26 @@ export default function Chat() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* 底部输入栏 */}
-      <div className="px-4 py-4 border-t border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+      <div className="border-t border-gray-200 bg-white px-4 py-4 dark:border-zinc-800 dark:bg-zinc-900">
         <form
-          className="flex items-center gap-2 max-w-3xl mx-auto"
-          onSubmit={e => {
-            e.preventDefault();
+          className="mx-auto flex max-w-3xl items-center gap-2"
+          onSubmit={event => {
+            event.preventDefault();
             if (!input.trim() || isLoading) return;
             sendMessage({ text: input });
             setInput('');
           }}
         >
           <input
-            className="flex-1 bg-gray-100 dark:bg-zinc-800 text-gray-800 dark:text-zinc-100 placeholder-gray-400 dark:placeholder-zinc-500 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-400 transition"
+            className="flex-1 rounded-xl bg-gray-100 px-4 py-2.5 text-sm text-gray-800 outline-none transition placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-400 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500"
             value={input}
             placeholder="输入消息，按 Enter 发送..."
-            onChange={e => setInput(e.currentTarget.value)}
+            onChange={event => setInput(event.currentTarget.value)}
           />
           <button
             type="submit"
             disabled={!input.trim() || isLoading}
-            className="px-4 py-2.5 bg-indigo-500 hover:bg-indigo-600 disabled:bg-indigo-300 dark:disabled:bg-indigo-900 text-white text-sm font-medium rounded-xl transition-colors"
+            className="rounded-xl bg-indigo-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-indigo-600 disabled:bg-indigo-300 dark:disabled:bg-indigo-900"
           >
             发送
           </button>
