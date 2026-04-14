@@ -7,13 +7,20 @@ from typing import Dict
 
 from app.config import PROJECT_ROOT, get_allowed_origins
 from app.models import ChatRequest, ExecCommandRequest, ReadFileRequest, ReadFileResponse
+from app.routers.sessions import router as sessions_router
 from app.services.chat import stream_chat
 from app.services.commands import run_command
 from app.services.files import read_repo_file
+from app.services.sessions import SESSIONS_DIR
 from app.services.skills import list_skills
 
 
 app = FastAPI(title="ai-chat-bot-server", version="0.1.0")
+
+# 确保会话存储目录存在
+SESSIONS_DIR.mkdir(exist_ok=True)
+
+app.include_router(sessions_router)
 
 app.add_middleware(
     CORSMiddleware,

@@ -46,3 +46,16 @@ class ApiEnvelope(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: List[Dict[str, Any]] = Field(default_factory=list)
+    session_id: Optional[str] = None
+
+
+class SessionMeta(BaseModel):
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+
+
+class SessionMessagesResponse(BaseModel):
+    session_id: str
+    messages: List[Dict[str, Any]]

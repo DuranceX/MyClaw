@@ -3,64 +3,21 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from typing import Any, Dict, Iterable, Iterator, List, Tuple
+from typing import Any, Dict, Iterable, Iterator, List
 from urllib import error, request
 
-from app.models import ChatRequest, ExecCommandResponse, ReadFileResponse, SkillEntry
-from app.services.commands import run_command
-from app.services.files import read_repo_file
+from app.models import ChatRequest, SkillEntry
 from app.services.skills import list_skills
+from app.tools import registry
 
 
-# DEFAULT_MODEL = "gemini-2.5-pro"
-XAI_MODEL = "grok-4.20-reasoning"
+# DEFAULT_MODEL = "gpt-5.4"
+XAI_MODEL = "grok-4.20-beta-latest-reasoning"
 MAX_STEPS = 50
 
-# 把工具 schema 和执行逻辑放在一起，确保 Python 侧完整掌握
-# “模型能调用什么”以及“这些调用会如何落地执行”。
-TOOL_SCHEMAS: List[Dict[str, Any]] = [
-    {
-        "type": "function",
-        "function": {
-            "name": "read_file",
-            "description": "根据相对路径读取项目根目录下的文件内容。适合查看源代码、配置文件、文档等文本文件。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "file_path": {
-                        "type": "string",
-                        "description": "相对于项目根目录的文件路径，例如 skills/weather/SKILL.md 或 packages/web/package.json",
-                    }
-                },
-                "required": ["file_path"],
-                "additionalProperties": False,
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "exec_command",
-            "description": "在项目根目录下执行命令行命令，返回 stdout 和 stderr。适合运行脚本、查看目录结构、执行构建命令等操作。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "要执行的 shell 命令，例如 ls skills/ 或 python3 skills/get_user_db/scripts/query_user.py --id 1",
-                    },
-                    "timeout_ms": {
-                        "type": "integer",
-                        "description": "超时时间（毫秒），默认 10000ms",
-                        "default": 10000,
-                    },
-                },
-                "required": ["command"],
-                "additionalProperties": False,
-            },
-        },
-    },
-]
+# 工具 schema 和执行逻辑已迁移到 app/tools/ 目录，由 registry 统一管理。
+# 参考 Claude Code 的 buildTool 模式：每个工具是独立的自描述对象，
+# 注册表负责收集，调用方只和注册表打交道。
 
 
 def construct_system_prompt(skills: List[SkillEntry]) -> str:
@@ -220,7 +177,7 @@ def _call_model(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         "model": os.getenv("XAI_MODEL", XAI_MODEL),
         "temperature": 0.2,
         "messages": messages,
-        "tools": TOOL_SCHEMAS,
+        "tools": registry.get_schemas(),
     }
 
     req = request.Request(
@@ -247,29 +204,6 @@ def _call_model(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         return json.loads(body)
     except json.JSONDecodeError as exc:
         raise RuntimeError("LLM returned invalid JSON.") from exc
-
-
-def _execute_tool(tool_name: str, tool_input: Dict[str, Any]) -> Tuple[str, Any]:
-    # 工具执行留在同一个进程内，模型循环就能保持同步、直观，便于排查问题。
-    if tool_name == "read_file":
-        try:
-            result = ReadFileResponse(
-                success=True,
-                file_path=tool_input.get("file_path"),
-                content=read_repo_file(str(tool_input.get("file_path", ""))),
-            )
-            return "tool-output-available", result.model_dump()
-        except (ValueError, OSError) as exc:
-            result = ReadFileResponse(success=False, error=str(exc))
-            return "tool-output-available", result.model_dump()
-
-    if tool_name == "exec_command":
-        command = str(tool_input.get("command", ""))
-        timeout_ms = int(tool_input.get("timeout_ms", 10000))
-        result: ExecCommandResponse = run_command(command, timeout_ms)
-        return "tool-output-available", result.model_dump()
-
-    return "tool-output-error", f"Unknown tool: {tool_name}"
 
 
 def _sse_line(chunk: Dict[str, Any]) -> bytes:
@@ -334,7 +268,7 @@ def stream_chat(payload: ChatRequest) -> Iterable[bytes]:
                         }
                     )
 
-                    output_type, output_value = _execute_tool(tool_name, tool_input)
+                    output_type, output_value = registry.execute(tool_name, tool_input)
                     yield _sse_line(
                         {
                             "type": output_type,
