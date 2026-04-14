@@ -4,6 +4,8 @@
 import { useChat } from '@ai-sdk/react';
 import { useEffect, useRef, useState } from 'react';
 
+import ReactMarkdown from 'react-markdown';
+
 import { ProgressTrail } from './components/chat/ProgressTrail';
 import { ToolCard } from './components/chat/ToolCard';
 import { getCurrentSessionMessages, getProgressStages } from './components/chat/progress';
@@ -11,7 +13,12 @@ import type { ToolLikePart } from '../lib/types/types';
 
 export default function Chat() {
   const [input, setInput] = useState('');
+  const [persistedError, setPersistedError] = useState<Error | null>(null);
   const { messages, sendMessage, setMessages, status, error } = useChat();
+
+  useEffect(() => {
+    if (error) setPersistedError(error);
+  }, [error]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isLoading = status === 'streaming' || status === 'submitted';
   const currentSessionMessages = getCurrentSessionMessages(messages);
@@ -28,7 +35,7 @@ export default function Chat() {
       <header className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <h1 className="text-lg font-semibold text-gray-800 dark:text-zinc-100">🤖 AI 助手</h1>
         <button
-          onClick={() => setMessages([])}
+          onClick={() => { setMessages([]); setPersistedError(null); }}
           className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-gray-500 transition-colors hover:bg-red-50 hover:text-red-500 dark:text-zinc-400 dark:hover:bg-red-950 dark:hover:text-red-400"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -102,8 +109,8 @@ export default function Chat() {
                   )}
 
                   {hasTextCard && (
-                    <div className="rounded-2xl rounded-bl-sm bg-white px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-gray-800 shadow-sm dark:bg-zinc-800 dark:text-zinc-100">
-                      {textContent}
+                    <div className="prose prose-sm max-w-none rounded-2xl rounded-bl-sm bg-white px-4 py-2.5 leading-relaxed text-gray-800 shadow-sm dark:prose-invert dark:bg-zinc-800 dark:text-zinc-100">
+                      <ReactMarkdown>{textContent}</ReactMarkdown>
                     </div>
                   )}
 
@@ -114,14 +121,14 @@ export default function Chat() {
           });
         })}
 
-        {error && (
+        {persistedError && (
           <div className="flex justify-start">
             <div className="mr-2 mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-500 text-sm text-white">
               AI
             </div>
             <div className="max-w-[75%] rounded-2xl rounded-bl-sm border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm dark:border-red-900 dark:bg-red-950/60 dark:text-red-200">
               <div className="mb-1 font-medium">请求失败</div>
-              <div className="break-words whitespace-pre-wrap">{error.message}</div>
+              <div className="break-words whitespace-pre-wrap">{persistedError.message}</div>
             </div>
           </div>
         )}
