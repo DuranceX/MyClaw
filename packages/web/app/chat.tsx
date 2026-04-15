@@ -45,11 +45,15 @@ import type { ToolLikePart } from '../lib/types/types';
  * 生成新的会话 ID。
  *
  * 格式：sess-{12位十六进制}，例如 sess-a1b2c3d4e5f6
- * 使用 crypto.randomUUID() 生成，截取12位保持简短。
- * 与后端 new_session_id() 函数生成的格式完全一致。
+ * 优先使用 crypto.randomUUID()，但该 API 仅在 HTTPS 或 localhost 下可用。
+ * HTTP 环境（如内网服务器）会报错，降级为 Math.random() 方案。
  */
 function newSessionId() {
-  return `sess-${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return `sess-${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+  }
+  // 降级方案：用 Math.random 生成12位十六进制
+  return `sess-${Array.from({ length: 12 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
 }
 
 export default function Chat() {
