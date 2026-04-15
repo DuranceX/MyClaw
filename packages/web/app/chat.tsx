@@ -30,7 +30,8 @@
 'use client';
 
 import { useChat } from '@ai-sdk/react';
-import { useEffect, useRef, useState } from 'react';
+import { DefaultChatTransport } from 'ai';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import ReactMarkdown from 'react-markdown';
 
@@ -70,9 +71,13 @@ export default function Chat() {
   const [sidebarRefresh, setSidebarRefresh] = useState(0);
 
   const { messages, sendMessage, setMessages, status, error } = useChat({
-    // 每次请求都带上 session_id，后端可以用于日志追踪
-    // 注意：保存会话是前端主动触发的，后端不会在这里自动保存
-    body: { session_id: currentSessionId },
+    // AI SDK v6 新版本将 body/headers 等 HTTP 配置移到了 transport 层
+    // 需要通过 DefaultChatTransport 传入，而不是直接在 useChat 选项里写 body
+    // useMemo 确保 currentSessionId 变化时 transport 实例跟着更新
+    transport: useMemo(
+      () => new DefaultChatTransport({ body: { session_id: currentSessionId } }),
+      [currentSessionId],
+    ),
   });
 
   useEffect(() => {
