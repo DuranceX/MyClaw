@@ -7,19 +7,26 @@
  * 本文件在原有聊天功能基础上，新增了多会话持久化支持：
  *
  * ### 状态
- * - currentSessionId: 当前激活的会话 ID
+ * - currentSessionId: 当前激活的会话 ID（格式 sess-xxxxxxxx）
  * - sidebarRefresh: 计数器，递增时触发侧边栏重新拉取列表
- * - isSidebarCollapsed: 控制侧边栏是否折叠（新增）
  *
  * ### 数据流
- * ``` 
+ * ```
  * 用户发送消息
  *   → useChat POST /api/chat（body 含 session_id）
- *   → 流式响应结束 → 前端 PUT /api/sessions/{id}
+ *   → 流式响应结束（status → ready / error）
+ *   → 前端 PUT /api/sessions/{id}（携带完整 messages）
+ *   → 后端写入 .chat-sessions/{id}.jsonl
  *   → sidebarRefresh++ → SessionSidebar 重新拉取列表
  * ```
+ *
+ * ### 为什么由前端主动保存？
+ * 后端 stream_chat 只有请求时的 messages（不含本轮 AI 回复）。
+ * AI 回复通过 SSE 流发给前端，后端没有完整的最终消息列表。
+ * 前端在流结束后主动 PUT 是最简单的方案。
  */
 
+// app/chat.tsx
 'use client';
 
 import { useChat } from '@ai-sdk/react';
@@ -36,24 +43,41 @@ import type { ToolLikePart } from '../lib/types/types';
 
 /**
  * 生成新的会话 ID。
+ *
+ * 格式：sess-{12位十六进制}，例如 sess-a1b2c3d4e5f6
+ * 优先使用 crypto.randomUUID()，但该 API 仅在 HTTPS 或 localhost 下可用。
+ * HTTP 环境（如内网服务器）会报错，降级为 Math.random() 方案。
  */
 function newSessionId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return `sess-${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
   }
+  // 降级方案：用 Math.random 生成12位十六进制
   return `sess-${Array.from({ length: 12 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
 }
 
 export default function Chat() {
   const [input, setInput] = useState('');
   const [persistedError, setPersistedError] = useState<Error | null>(null);
+
+  /**
+   * 当前激活的会话 ID。
+   * 初始值在组件挂载时生成（lazy initializer），
+   * 页面加载后如果有历史会话，会被 loadSession 替换为最近的会话 ID。
+   */
   const [currentSessionId, setCurrentSessionId] = useState<string>(() => newSessionId());
+
+  /**
+   * 侧边栏刷新触发器。
+   * 每次需要刷新侧边栏时执行 setSidebarRefresh(n => n + 1)。
+   * SessionSidebar 监听这个值的变化，变化时重新拉取会话列表。
+   */
   const [sidebarRefresh, setSidebarRefresh] = useState(0);
-  
-  /** 新增：控制侧边栏是否折叠 */
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const { messages, sendMessage, setMessages, status, error } = useChat({
+    // AI SDK v6 新版本将 body/headers 等 HTTP 配置移到了 transport 层
+    // 需要通过 DefaultChatTransport 传入，而不是直接在 useChat 选项里写 body
+    // useMemo 确保 currentSessionId 变化时 transport 实例跟着更新
     transport: useMemo(
       () => new DefaultChatTransport({ body: { session_id: currentSessionId } }),
       [currentSessionId],
@@ -64,6 +88,30 @@ export default function Chat() {
     if (error) setPersistedError(error);
   }, [error]);
 
+  /**
+   * 流结束后自动保存会话（正常结束 or 出错都保存）。
+   *
+   * ## 检测"流结束"的方式
+   *
+   * useChat 的 status 有四个值：idle → submitted → streaming → ready/error
+   * 我们需要检测从 streaming/submitted 变为 ready/error 的瞬间。
+   *
+   * 用 prevStatus ref 记录上一次的 status，在 effect 里比较：
+   * - wasLoading: 上一次是 streaming 或 submitted（正在处理中）
+   * - isNowDone: 现在是 ready 或 error（处理完成）
+   * 两者都为 true 时，说明刚刚完成了一次请求。
+   *
+   * 为什么不直接用 status === 'ready'？
+   * 因为 status 初始值也是 'ready'（idle 状态），
+   * 如果直接判断 ready 会在页面加载时误触发保存。
+   *
+   * ## 错误时的特殊处理
+   *
+   * useChat 的 error 在下次发送消息时会被重置，
+   * 所以出错时需要立即把错误信息追加到消息列表里保存。
+   * 追加的消息使用 role: "error"（AI SDK 标准格式的扩展），
+   * 前端加载历史时会渲染为红色错误卡片。
+   */
   const prevStatus = useRef(status);
   useEffect(() => {
     const wasLoading = prevStatus.current === 'streaming' || prevStatus.current === 'submitted';
@@ -71,6 +119,7 @@ export default function Chat() {
     prevStatus.current = status;
     if (!wasLoading || !isNowDone || messages.length === 0) return;
 
+    // 出错时把错误信息作为一条特殊消息追加，这样历史记录里能看到错误
     const msgsToSave = status === 'error' && error
       ? [...messages, { id: `err-${Date.now()}`, role: 'error' as const, parts: [{ type: 'text', text: error.message }] }]
       : messages;
@@ -80,8 +129,16 @@ export default function Chat() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages: msgsToSave }),
     }).then(() => setSidebarRefresh(n => n + 1)).catch(() => {});
-  }, [status, messages, currentSessionId, error]);
+  }, [status]);
 
+  /**
+   * 页面加载时自动恢复最近的会话。
+   *
+   * 拉取会话列表（按 updated_at 降序），自动选中第一条（最近更新的）。
+   * 这样用户刷新页面后能直接看到上次的对话，不需要手动点击。
+   *
+   * 依赖数组为空（[]），只在组件挂载时执行一次。
+   */
   useEffect(() => {
     fetch('/api/sessions')
       .then(r => r.json())
@@ -104,6 +161,18 @@ export default function Chat() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  /**
+   * 加载指定会话的历史消息。
+   *
+   * 步骤：
+   * 1. 更新 currentSessionId（侧边栏高亮切换）
+   * 2. 清空错误状态
+   * 3. 从后端拉取消息列表
+   * 4. setMessages(data.messages) 直接恢复 useChat 状态
+   *
+   * 消息格式与 AI SDK UIMessage 完全一致，所以 setMessages 可以无缝恢复，
+   * 不需要任何格式转换。
+   */
   function loadSession(id: string) {
     setCurrentSessionId(id);
     setPersistedError(null);
@@ -113,12 +182,26 @@ export default function Chat() {
       .catch(() => {});
   }
 
+  /**
+   * 新建空白会话。
+   *
+   * 生成新的 session ID，清空消息列表和错误状态。
+   * 新会话在用户发送第一条消息并收到回复后才会被保存到后端。
+   */
   function handleNew() {
     setCurrentSessionId(newSessionId());
     setMessages([]);
     setPersistedError(null);
   }
 
+  /**
+   * 删除指定会话。
+   *
+   * 删除后：
+   * 1. 触发侧边栏刷新（列表中移除该项）
+   * 2. 如果删除的是当前会话，自动新建一个空会话
+   *    （避免用户停留在一个已不存在的会话上）
+   */
   function handleDelete(id: string) {
     fetch(`/api/sessions/${id}`, { method: 'DELETE' })
       .then(() => {
@@ -130,50 +213,17 @@ export default function Chat() {
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-zinc-950">
-      {/* 可折叠的 Session 侧边栏 */}
-      <div
-        className={`transition-all duration-300 ease-in-out border-r border-gray-200 dark:border-zinc-800 overflow-hidden ${
-          isSidebarCollapsed ? 'w-0' : 'w-72'
-        }`}
-      >
-        <SessionSidebar
-          currentSessionId={currentSessionId}
-          onSelect={loadSession}
-          onNew={handleNew}
-          onDelete={handleDelete}
-          refreshTrigger={sidebarRefresh}
-        />
-      </div>
+      <SessionSidebar
+        currentSessionId={currentSessionId}
+        onSelect={loadSession}
+        onNew={handleNew}
+        onDelete={handleDelete}
+        refreshTrigger={sidebarRefresh}
+      />
 
-      {/* 主聊天区域 */}
-      <div className="flex flex-1 flex-col min-w-0 relative">
+      <div className="flex flex-1 flex-col min-w-0">
         <header className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-          {/* 折叠按钮 */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 transition-colors"
-              title={isSidebarCollapsed ? "展开侧边栏" : "折叠侧边栏"}
-            >
-              <svg 
-                xmlns="http://www.w3.org/2000/svg" 
-                width="20" 
-                height="20" 
-                viewBox="0 0 24 24" 
-                fill="none" 
-                stroke="currentColor" 
-                strokeWidth="2.5" 
-                strokeLinecap="round" 
-                strokeLinejoin="round"
-                className={`transition-transform ${isSidebarCollapsed ? 'rotate-180' : ''}`}
-              >
-                <path d="M15 18l-6-6 6-6" />
-              </svg>
-            </button>
-            
-            <h1 className="text-lg font-semibold text-gray-800 dark:text-zinc-100">🤖 AI 助手</h1>
-          </div>
-
+          <h1 className="text-lg font-semibold text-gray-800 dark:text-zinc-100">🤖 AI 助手</h1>
           <button
             onClick={() => { setMessages([]); setPersistedError(null); }}
             className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-gray-500 transition-colors hover:bg-red-50 hover:text-red-500 dark:text-zinc-400 dark:hover:bg-red-950 dark:hover:text-red-400"
@@ -201,6 +251,7 @@ export default function Chat() {
             type TextPart = Extract<Part, { type: 'text' }>;
             type ToolPart = Extract<Part, { type: `tool-${string}` }>;
 
+            // 错误消息（从历史记录加载）
             if ((message.role as string) === 'error') {
               const errText = message.parts.find(p => p.type === 'text')?.text ?? '';
               return (
@@ -240,6 +291,8 @@ export default function Chat() {
 
             return nonEmptySteps.map((stepParts, stepIndex) => {
               const textParts = stepParts.filter((part): part is TextPart => part.type === 'text');
+              // 每个工具调用会产生多个 part（tool-input-available、tool-output-available / tool-output-error）。
+              // 只取每个 toolCallId 的最终状态 part，避免同一个工具调用渲染多张卡片。
               const allToolParts = stepParts.filter((part): part is ToolPart => part.type.startsWith('tool-'));
               const toolPartsByCallId = new Map<string, ToolPart>();
               for (const part of allToolParts) {

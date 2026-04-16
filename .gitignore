@@ -11,6 +11,11 @@
 !/src/web/.yarn/plugins
 !/src/web/.yarn/releases
 !/src/web/.yarn/versions
+.package-lock.json
+.pnpm-lock.yaml
+/src/web/package-lock.json
+/src/web/pnpm-lock.yaml
+
 
 # testing
 /src/web/coverage
