@@ -8,7 +8,7 @@ from typing import List
 APP_DIR = Path(__file__).resolve().parent
 SERVER_DIR = APP_DIR.parent
 PROJECT_ROOT = SERVER_DIR.parent.parent
-SKILLS_DIR = PROJECT_ROOT / "skills"
+SKILLS_DIR = PROJECT_ROOT / ".skills"
 
 DEFAULT_WEB_ORIGIN = "http://127.0.0.1:3000"
 DEFAULT_SERVER_ENV_PATH = SERVER_DIR / ".env"

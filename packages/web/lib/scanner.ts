@@ -124,7 +124,7 @@ async function findSkillFiles(dir: string): Promise<string[]> {
  * @param projectRoot 项目根目录的绝对路径（含有 skills/ 子目录）
  */
 export async function scanSkills(projectRoot: string): Promise<SkillEntry[]> {
-  const skillsDir = join(projectRoot, 'skills')
+  const skillsDir = join(projectRoot, '.skills')
   const skillFiles = await findSkillFiles(skillsDir)
 
   const entries: SkillEntry[] = []
