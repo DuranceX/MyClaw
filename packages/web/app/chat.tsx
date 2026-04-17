@@ -58,7 +58,6 @@ function newSessionId() {
 
 export default function Chat() {
   const [input, setInput] = useState('');
-  const [persistedError, setPersistedError] = useState<Error | null>(null);
 
   /**
    * 当前激活的会话 ID。
@@ -73,6 +72,7 @@ export default function Chat() {
    * SessionSidebar 监听这个值的变化，变化时重新拉取会话列表。
    */
   const [sidebarRefresh, setSidebarRefresh] = useState(0);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const { messages, sendMessage, setMessages, status, stop, error } = useChat({
     // AI SDK v6 新版本将 body/headers 等 HTTP 配置移到了 transport 层
@@ -84,34 +84,6 @@ export default function Chat() {
     ),
   });
 
-  useEffect(() => {
-    if (error) setPersistedError(error);
-  }, [error]);
-
-  /**
-   * 流结束后自动保存会话（正常结束 or 出错都保存）。
-   *
-   * ## 检测"流结束"的方式
-   *
-   * useChat 的 status 有四个值：idle → submitted → streaming → ready/error
-   * 我们需要检测从 streaming/submitted 变为 ready/error 的瞬间。
-   *
-   * 用 prevStatus ref 记录上一次的 status，在 effect 里比较：
-   * - wasLoading: 上一次是 streaming 或 submitted（正在处理中）
-   * - isNowDone: 现在是 ready 或 error（处理完成）
-   * 两者都为 true 时，说明刚刚完成了一次请求。
-   *
-   * 为什么不直接用 status === 'ready'？
-   * 因为 status 初始值也是 'ready'（idle 状态），
-   * 如果直接判断 ready 会在页面加载时误触发保存。
-   *
-   * ## 错误时的特殊处理
-   *
-   * useChat 的 error 在下次发送消息时会被重置，
-   * 所以出错时需要立即把错误信息追加到消息列表里保存。
-   * 追加的消息使用 role: "error"（AI SDK 标准格式的扩展），
-   * 前端加载历史时会渲染为红色错误卡片。
-   */
   const prevStatus = useRef(status);
   useEffect(() => {
     const wasLoading = prevStatus.current === 'streaming' || prevStatus.current === 'submitted';
@@ -119,10 +91,14 @@ export default function Chat() {
     prevStatus.current = status;
     if (!wasLoading || !isNowDone || messages.length === 0) return;
 
-    // 出错时把错误信息作为一条特殊消息追加，这样历史记录里能看到错误
+    // 出错时把错误信息作为一条特殊消息追加到 messages 里，保证顺序正确且支持多个错误
     const msgsToSave = status === 'error' && error
       ? [...messages, { id: `err-${Date.now()}`, role: 'error' as const, parts: [{ type: 'text', text: error.message }] }]
       : messages;
+
+    if (status === 'error' && error) {
+      setMessages(msgsToSave);
+    }
 
     fetch(`/api/sessions/${currentSessionId}`, {
       method: 'PUT',
@@ -175,7 +151,6 @@ export default function Chat() {
    */
   function loadSession(id: string) {
     setCurrentSessionId(id);
-    setPersistedError(null);
     fetch(`/api/sessions/${id}`)
       .then(r => r.json())
       .then((data: { messages: typeof messages }) => setMessages(data.messages))
@@ -191,7 +166,6 @@ export default function Chat() {
   function handleNew() {
     setCurrentSessionId(newSessionId());
     setMessages([]);
-    setPersistedError(null);
   }
 
   /**
@@ -213,19 +187,37 @@ export default function Chat() {
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-zinc-950">
-      <SessionSidebar
-        currentSessionId={currentSessionId}
-        onSelect={loadSession}
-        onNew={handleNew}
-        onDelete={handleDelete}
-        refreshTrigger={sidebarRefresh}
-      />
+      {/* 可折叠的 Session 侧边栏 */}
+      <div
+        className={`transition-all duration-300 ease-in-out border-r border-gray-200 dark:border-zinc-800 overflow-hidden ${
+          isSidebarCollapsed ? 'w-0' : 'w-72'
+        }`}
+      >
+        <SessionSidebar
+          currentSessionId={currentSessionId}
+          onSelect={loadSession}
+          onNew={handleNew}
+          onDelete={handleDelete}
+          refreshTrigger={sidebarRefresh}
+        />
+      </div>
 
       <div className="flex flex-1 flex-col min-w-0">
         <header className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <h1 className="text-lg font-semibold text-gray-800 dark:text-zinc-100">🤖 AI 助手</h1>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 transition-colors"
+              title={isSidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${isSidebarCollapsed ? 'rotate-180' : ''}`}>
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+            </button>
+            <h1 className="text-lg font-semibold text-gray-800 dark:text-zinc-100">🤖 AI 助手</h1>
+          </div>
           <button
-            onClick={() => { setMessages([]); setPersistedError(null); }}
+            onClick={() => { setMessages([]); }}
             className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-gray-500 transition-colors hover:bg-red-50 hover:text-red-500 dark:text-zinc-400 dark:hover:bg-red-950 dark:hover:text-red-400"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -332,18 +324,6 @@ export default function Chat() {
               );
             });
           })}
-
-          {persistedError && (
-            <div className="flex justify-start">
-              <div className="mr-2 mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-500 text-sm text-white">
-                AI
-              </div>
-              <div className="max-w-[75%] rounded-2xl rounded-bl-sm border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm dark:border-red-900 dark:bg-red-950/60 dark:text-red-200">
-                <div className="mb-1 font-medium">请求失败</div>
-                <div className="break-words whitespace-pre-wrap">{persistedError.message}</div>
-              </div>
-            </div>
-          )}
 
           {isLoading && (
             <div className="flex justify-start">

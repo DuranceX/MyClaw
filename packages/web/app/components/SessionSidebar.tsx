@@ -67,7 +67,7 @@ export function SessionSidebar({ currentSessionId, onSelect, onNew, onDelete, re
   }, [refreshTrigger]);
 
   return (
-    <aside className="flex h-full w-full flex-col border-r border-gray-200 bg-white transition-all duration-300 dark:border-zinc-800 dark:bg-zinc-900">
+    <aside className="flex h-full w-72 flex-col border-r border-gray-200 bg-white transition-all duration-300 dark:border-zinc-800 dark:bg-zinc-900">
       {/* 顶部标题栏 + 新建按钮 */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-zinc-800">
         <span className="text-sm font-medium text-gray-700 dark:text-zinc-300">历史会话</span>
