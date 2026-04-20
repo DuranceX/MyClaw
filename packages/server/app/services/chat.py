@@ -188,14 +188,25 @@ def _call_model(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
     )
     print(f"Calling model at: {req.full_url}")
 
+    # 只有模型调用走代理，工具脚本的网络请求不受影响
+    proxy = settings.llm.proxy
+    opener = request.build_opener(
+        request.ProxyHandler({"http": proxy, "https": proxy})
+        if proxy
+        else request.ProxyHandler({})  # 空 ProxyHandler 忽略系统代理
+    )
+
     try:
-        with request.urlopen(req, timeout=60) as resp:
+        with opener.open(req, timeout=60) as resp:
             body = resp.read().decode("utf-8")
     except error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"LLM request failed: {exc.code} {detail}") from exc
     except error.URLError as exc:
-        raise RuntimeError(f"LLM request failed: {exc.reason}") from exc
+        reason = str(exc.reason)
+        if "timed out" in reason.lower():
+            raise RuntimeError("LLM 调用超时（60s），请检查网络或代理配置") from exc
+        raise RuntimeError(f"LLM request failed: {reason}") from exc
 
     try:
         return json.loads(body)

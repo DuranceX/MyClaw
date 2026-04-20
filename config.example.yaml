@@ -43,6 +43,7 @@ providers:
 llm:
   provider: "grok"                          # 指向上方 providers 中的某个 key
   model: "grok-4.20-beta-latest-reasoning"  # 该 provider 下要使用的模型
+  # proxy: "http://127.0.0.1:7890"          # 可选：仅模型调用走此代理，工具脚本不受影响
 
 # ----------------------------------------------------------------------------
 # 工具类 API 凭证

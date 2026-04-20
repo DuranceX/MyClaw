@@ -34,6 +34,7 @@ class LlmConfig(BaseModel):
     base_url: str = ""
     model: str = "grok-4.20-beta-latest-reasoning"
     provider: str = ""  # 当前选中的 provider 名称
+    proxy: Optional[str] = None  # 仅用于模型调用，例如 "http://127.0.0.1:7890"
 
 
 class TelegramConfig(BaseModel):
