@@ -74,7 +74,7 @@ export default function Chat() {
   const [sidebarRefresh, setSidebarRefresh] = useState(0);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
-  const { messages, sendMessage, setMessages, status, stop, error } = useChat({
+  const { messages, sendMessage, setMessages, status, stop } = useChat({
     // AI SDK v6 新版本将 body/headers 等 HTTP 配置移到了 transport 层
     // 需要通过 DefaultChatTransport 传入，而不是直接在 useChat 选项里写 body
     // useMemo 确保 currentSessionId 变化时 transport 实例跟着更新
@@ -91,14 +91,9 @@ export default function Chat() {
     prevStatus.current = status;
     if (!wasLoading || !isNowDone || messages.length === 0) return;
 
-    // 出错时把错误信息作为一条特殊消息追加到 messages 里，保证顺序正确且支持多个错误
-    const msgsToSave = status === 'error' && error
-      ? [...messages, { id: `err-${Date.now()}`, role: 'error' as const, parts: [{ type: 'text', text: error.message }] }]
-      : messages;
-
-    if (status === 'error' && error) {
-      setMessages(msgsToSave);
-    }
+    // 出错时 session 里只保存正常的 messages，不混入错误提示
+    // 错误展示由 useChat 的 error 状态在 UI 层处理，不污染发给模型的对话历史
+    const msgsToSave = messages;
 
     fetch(`/api/sessions/${currentSessionId}`, {
       method: 'PUT',
