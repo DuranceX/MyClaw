@@ -44,6 +44,10 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# config（含敏感 API Key，不提交；example 文件除外）
+config.yaml
+!config.example.yaml
+
 # env files (can opt-in for committing if needed)
 .env*
 /packages/web/.env*

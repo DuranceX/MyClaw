@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 import json
-import os
 import uuid
 from typing import Any, Dict, Iterable, Iterator, List
 from urllib import error, request
 
+from app.config import settings
 from app.models import ChatRequest, SkillEntry
 from app.services.skills import list_skills
 from app.tools import registry
 
 
-# DEFAULT_MODEL = "gpt-5.4"
-XAI_MODEL = "grok-4.20-beta-latest-reasoning"
 MAX_STEPS = 50
 
 # 工具 schema 和执行逻辑已迁移到 app/tools/ 目录，由 registry 统一管理。
@@ -161,20 +159,19 @@ def convert_ui_messages_to_model_messages(messages: List[Dict[str, Any]]) -> Lis
 
 
 def _chat_completions_url() -> str:
-    base_url = os.getenv("XAI_BASE_URL", "").rstrip("/")
-    print(f"XAI_BASE_URL: {base_url}")
+    base_url = settings.llm.base_url.rstrip("/")
     if not base_url:
-        raise RuntimeError("XAI_BASE_URL is not configured.")
+        raise RuntimeError("LLM base_url is not configured. Set llm.provider in config.yaml.")
     return f"{base_url}/chat/completions"
 
 
 def _call_model(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
-    api_key = os.getenv("XAI_API_KEY")
+    api_key = settings.llm.api_key
     if not api_key:
-        raise RuntimeError("XAI_API_KEY is not configured.")
+        raise RuntimeError("LLM api_key is not configured. Set llm.provider in config.yaml.")
 
     payload = {
-        "model": os.getenv("XAI_MODEL", XAI_MODEL),
+        "model": settings.llm.model,
         "temperature": 0.2,
         "messages": messages,
         "tools": registry.get_schemas(),
