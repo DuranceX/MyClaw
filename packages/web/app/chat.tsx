@@ -232,16 +232,6 @@ export default function Chat() {
             </div>
           )}
 
-          {error && (
-            <div className="flex justify-start">
-              <div className="mr-2 mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-500 text-sm text-white">AI</div>
-              <div className="max-w-[75%] rounded-2xl rounded-bl-sm border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm dark:border-red-900 dark:bg-red-950/60 dark:text-red-200">
-                <div className="mb-1 font-medium">请求失败</div>
-                <div className="break-words whitespace-pre-wrap">{error.message}</div>
-              </div>
-            </div>
-          )}
-
           {messages.map(message => {
             const isUser = message.role === 'user';
             type Part = typeof message.parts[number];
@@ -341,6 +331,16 @@ export default function Chat() {
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:150ms]" />
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:300ms]" />
                 </div>
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="flex justify-start">
+              <div className="mr-2 mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-500 text-sm text-white">AI</div>
+              <div className="max-w-[75%] rounded-2xl rounded-bl-sm border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm dark:border-red-900 dark:bg-red-950/60 dark:text-red-200">
+                <div className="mb-1 font-medium">请求失败</div>
+                <div className="break-words whitespace-pre-wrap">{error.message}</div>
               </div>
             </div>
           )}
