@@ -58,7 +58,6 @@ function newSessionId() {
 
 export default function Chat() {
   const [input, setInput] = useState('');
-  const [lastError, setLastError] = useState<Error | null>(null);
 
   /**
    * 当前激活的会话 ID。
@@ -83,7 +82,17 @@ export default function Chat() {
       () => new DefaultChatTransport({ body: { session_id: currentSessionId } }),
       [currentSessionId],
     ),
-    onError: (err) => { setLastError(err); },
+    onError: (err) => {
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `err-${Date.now()}`,
+          role: 'error' as any,
+          parts: [{ type: 'text' as const, text: err.message }],
+          createdAt: new Date(),
+        },
+      ]);
+    },
   });
 
   const prevStatus = useRef(status);
@@ -333,16 +342,6 @@ export default function Chat() {
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:150ms]" />
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:300ms]" />
                 </div>
-              </div>
-            </div>
-          )}
-
-          {lastError && (
-            <div className="flex justify-start">
-              <div className="mr-2 mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-500 text-sm text-white">AI</div>
-              <div className="max-w-[75%] rounded-2xl rounded-bl-sm border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm dark:border-red-900 dark:bg-red-950/60 dark:text-red-200">
-                <div className="mb-1 font-medium">请求失败</div>
-                <div className="wrap-break-word whitespace-pre-wrap">{lastError.message}</div>
               </div>
             </div>
           )}
