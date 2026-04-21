@@ -26,6 +26,7 @@ class ProviderConfig(BaseModel):
     """单个 provider 的连接信息。"""
     api_key: str = ""
     base_url: str = ""
+    proxy: Optional[str] = None
 
 
 class LlmConfig(BaseModel):
@@ -127,6 +128,8 @@ def load_settings(config_path: Path = _DEFAULT_CONFIG_PATH) -> Settings:
             settings.llm.api_key = p.api_key
         if p.base_url:
             settings.llm.base_url = p.base_url
+        if p.proxy:
+            settings.llm.proxy = p.proxy
     elif not settings.llm.api_key:
         # 兜底：从 env 里读 OPENAI_*（兼容旧配置）
         import os
