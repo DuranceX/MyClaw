@@ -58,6 +58,7 @@ function newSessionId() {
 
 export default function Chat() {
   const [input, setInput] = useState('');
+  const [lastError, setLastError] = useState<Error | null>(null);
 
   /**
    * 当前激活的会话 ID。
@@ -74,7 +75,7 @@ export default function Chat() {
   const [sidebarRefresh, setSidebarRefresh] = useState(0);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
-  const { messages, sendMessage, setMessages, status, stop, error } = useChat({
+  const { messages, sendMessage, setMessages, status, stop } = useChat({
     // AI SDK v6 新版本将 body/headers 等 HTTP 配置移到了 transport 层
     // 需要通过 DefaultChatTransport 传入，而不是直接在 useChat 选项里写 body
     // useMemo 确保 currentSessionId 变化时 transport 实例跟着更新
@@ -82,6 +83,7 @@ export default function Chat() {
       () => new DefaultChatTransport({ body: { session_id: currentSessionId } }),
       [currentSessionId],
     ),
+    onError: (err) => { setLastError(err); },
   });
 
   const prevStatus = useRef(status);
@@ -226,7 +228,7 @@ export default function Chat() {
         </header>
 
         <div className="flex-1 space-y-4 overflow-y-auto px-4 py-6">
-          {messages.length === 0 && !error && (
+          {messages.length === 0 && (
             <div className="mt-20 text-center text-sm text-gray-400 dark:text-zinc-600">
               发送消息开始对话
             </div>
@@ -335,12 +337,12 @@ export default function Chat() {
             </div>
           )}
 
-          {error && (
+          {lastError && (
             <div className="flex justify-start">
               <div className="mr-2 mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-500 text-sm text-white">AI</div>
               <div className="max-w-[75%] rounded-2xl rounded-bl-sm border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm dark:border-red-900 dark:bg-red-950/60 dark:text-red-200">
                 <div className="mb-1 font-medium">请求失败</div>
-                <div className="break-words whitespace-pre-wrap">{error.message}</div>
+                <div className="wrap-break-word whitespace-pre-wrap">{lastError.message}</div>
               </div>
             </div>
           )}
