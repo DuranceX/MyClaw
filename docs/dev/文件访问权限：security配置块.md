@@ -81,3 +81,19 @@ class Settings(BaseSettings):
 ### read_file.py
 
 更新工具描述，明确告知模型"项目外的文件用绝对路径"，引导模型优先使用 `read_file` 而非 `exec_command cat`。
+
+---
+
+## exec_command 的安全边界
+
+`exec_command` 执行任意 shell 命令，天然绕过 `path_guard`。例如 `cat /etc/passwd` 不经过任何路径校验就能执行。
+
+### 为什么不拦截？
+
+参考 Claude Code 的做法：它用 tree-sitter 解析 AST，识别 `cat`、`head`、`tail` 等几十个路径命令，提取文件参数后做 `pathInAllowedWorkingPath` 校验。但这套方案的维护成本极高——管道、变量替换、进程替换、Zsh 特有语法都需要单独处理，且 `shell=True` 下几乎不可能做到完备。
+
+Claude Code 的最终策略也不是"硬拦截"，而是"**路径在工作目录外 → 弹框让用户确认**"。本项目是纯 API 服务，没有交互式确认机制，所以选择了更务实的方案：
+
+- `exec_command` 定位为"运行脚本/构建命令"的逃生舱，description 明确引导模型不要用它读文件
+- 真正的安全边界由 `path_guard` 在文件工具层面保证（`read_file`、`grep`、`glob`、`edit_file`、`write_file`）
+- 需要严格隔离时，收窄 `security.file_access_root` + `exclude_files`，并在部署层面限制进程权限
