@@ -74,6 +74,7 @@ export default function Chat() {
    */
   const [sidebarRefresh, setSidebarRefresh] = useState(0);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   const { messages, sendMessage, setMessages, status, stop } = useChat({
     // AI SDK v6 新版本将 body/headers 等 HTTP 配置移到了 transport 层
@@ -194,34 +195,58 @@ export default function Chat() {
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-zinc-950">
-      {/* 可折叠的 Session 侧边栏 */}
+      {/* 移动端遮罩层 */}
+      {isMobileSidebarOpen && (
+        <div
+          className="fixed inset-0 z-20 bg-black/40 md:hidden"
+          onClick={() => setIsMobileSidebarOpen(false)}
+        />
+      )}
+
+      {/* 侧边栏：移动端抽屉式，桌面端可折叠 */}
       <div
-        className={`transition-all duration-300 ease-in-out border-r border-gray-200 dark:border-zinc-800 overflow-hidden ${
-          isSidebarCollapsed ? 'w-0' : 'w-72'
-        }`}
+        className={`
+          fixed inset-y-0 left-0 z-30 transition-transform duration-300 ease-in-out
+          md:relative md:z-auto md:translate-x-0 md:transition-all
+          border-r border-gray-200 dark:border-zinc-800 overflow-hidden
+          ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+          ${isSidebarCollapsed ? 'md:w-0' : 'md:w-72'}
+          w-72
+        `}
       >
         <SessionSidebar
           currentSessionId={currentSessionId}
-          onSelect={loadSession}
-          onNew={handleNew}
+          onSelect={(id) => { loadSession(id); setIsMobileSidebarOpen(false); }}
+          onNew={() => { handleNew(); setIsMobileSidebarOpen(false); }}
           onDelete={handleDelete}
           refreshTrigger={sidebarRefresh}
         />
       </div>
 
       <div className="flex flex-1 flex-col min-w-0">
-        <header className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="flex items-center gap-3">
+        <header className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="flex items-center gap-2">
+            {/* 移动端：汉堡菜单 */}
+            <button
+              onClick={() => setIsMobileSidebarOpen(true)}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 transition-colors md:hidden"
+              title="打开侧边栏"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
+            </button>
+            {/* 桌面端：折叠按钮 */}
             <button
               onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 transition-colors"
+              className="hidden md:flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 transition-colors"
               title={isSidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'}
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${isSidebarCollapsed ? 'rotate-180' : ''}`}>
                 <path d="M15 18l-6-6 6-6" />
               </svg>
             </button>
-            <h1 className="text-lg font-semibold text-gray-800 dark:text-zinc-100">🤖 AI 助手</h1>
+            <h1 className="text-base font-semibold text-gray-800 dark:text-zinc-100 md:text-lg">🤖 AI 助手</h1>
           </div>
           <button
             onClick={() => { setMessages([]); }}
@@ -256,7 +281,7 @@ export default function Chat() {
               return (
                 <div key={message.id} className="flex justify-start">
                   <div className="mr-2 mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-500 text-sm text-white">AI</div>
-                  <div className="max-w-[75%] rounded-2xl rounded-bl-sm border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm dark:border-red-900 dark:bg-red-950/60 dark:text-red-200">
+                  <div className="max-w-[85%] md:max-w-[75%] rounded-2xl rounded-bl-sm border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm dark:border-red-900 dark:bg-red-950/60 dark:text-red-200">
                     <div className="mb-1 font-medium">请求失败</div>
                     <div className="break-words whitespace-pre-wrap">{errText}</div>
                   </div>
@@ -267,7 +292,7 @@ export default function Chat() {
             if (isUser) {
               return (
                 <div key={message.id} className="flex justify-end">
-                  <div className="max-w-[75%] rounded-2xl rounded-br-sm bg-indigo-500 px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-white shadow-sm">
+                  <div className="max-w-[85%] md:max-w-[75%] rounded-2xl rounded-br-sm bg-indigo-500 px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-white shadow-sm">
                     {message.parts.map((part, index) => part.type === 'text' && <span key={index}>{part.text}</span>)}
                   </div>
                   <div className="ml-2 mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-300 text-sm text-gray-600 dark:bg-zinc-600 dark:text-zinc-200">
@@ -312,7 +337,7 @@ export default function Chat() {
                     <div className="mr-2 w-8 shrink-0" />
                   )}
 
-                  <div className="max-w-[75%] space-y-2">
+                  <div className="max-w-[85%] md:max-w-[75%] space-y-2">
                     {showProgressInReply && firstAssistantInCurrentSession?.id === message.id && stepIndex === 0 && (
                       <div className="rounded-2xl rounded-bl-sm border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
                         <ProgressTrail stages={progressStages} isLoading={isLoading} />
@@ -350,7 +375,7 @@ export default function Chat() {
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="border-t border-gray-200 bg-white px-4 py-4 dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="border-t border-gray-200 bg-white px-3 py-3 pb-safe dark:border-zinc-800 dark:bg-zinc-900 md:px-4 md:py-4">
           <form
             className="mx-auto flex max-w-3xl items-center gap-2"
             onSubmit={event => {
