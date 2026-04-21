@@ -9,7 +9,7 @@
     "dev:web": "cd packages/web && npm run dev",
     "dev:api": "cd packages/server && .venv/bin/python -m uvicorn app.main:app --reload --port 8000",
     "deploy:web": "cd packages/web && npm run build && pm2 restart ai-chat-web",
-    "deploy:api": "cd packages/server && source .venv/bin/activate && pip3 install -r requirements.txt && pm2 restart ai-chat-server",
+    "deploy:api": "cd packages/server && .venv/bin/pip3 install -r requirements.txt && pm2 restart ai-chat-server",
     "deploy": "npm run deploy:web && npm run deploy:api"
   },
   "devDependencies": {
