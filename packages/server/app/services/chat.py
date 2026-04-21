@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import uuid
 from typing import Any, Dict, Iterable, Iterator, List
-from urllib import error, request
+
+import httpx
 
 from app.config import settings
 from app.models import ChatRequest, SkillEntry
@@ -177,40 +178,29 @@ def _call_model(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         "tools": registry.get_schemas(),
     }
 
-    req = request.Request(
-        _chat_completions_url(),
-        data=_serialize_json(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        },
-        method="POST",
-    )
-    print(f"Calling model at: {req.full_url}")
-
-    # 只有模型调用走代理，工具脚本的网络请求不受影响
     proxy = settings.llm.proxy
-    opener = request.build_opener(
-        request.ProxyHandler({"http": proxy, "https": proxy})
-        if proxy
-        else request.ProxyHandler({})  # 空 ProxyHandler 忽略系统代理
-    )
+    print(f"Calling model at: {_chat_completions_url()}")
 
     try:
-        with opener.open(req, timeout=60) as resp:
-            body = resp.read().decode("utf-8")
-    except error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"LLM request failed: {exc.code} {detail}") from exc
-    except error.URLError as exc:
-        reason = str(exc.reason)
-        if "timed out" in reason.lower():
-            raise RuntimeError("LLM 调用超时（60s），请检查网络或代理配置") from exc
-        raise RuntimeError(f"LLM request failed: {reason}") from exc
+        with httpx.Client(proxy=proxy, timeout=60) as client:
+            resp = client.post(
+                _chat_completions_url(),
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                },
+            )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(f"LLM request failed: {exc.response.status_code} {exc.response.text}") from exc
+    except httpx.TimeoutException as exc:
+        raise RuntimeError("LLM 调用超时（60s），请检查网络或代理配置") from exc
+    except httpx.RequestError as exc:
+        raise RuntimeError(f"LLM request failed: {exc}") from exc
 
     try:
-        return json.loads(body)
-    except json.JSONDecodeError as exc:
+        return resp.json()
+    except Exception as exc:
         raise RuntimeError("LLM returned invalid JSON.") from exc
 
 
