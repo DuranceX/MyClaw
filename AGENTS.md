@@ -102,6 +102,24 @@ tools:
 - LLM 通过 `read_file` 工具读取 SKILL.md 获取详细用法
 - 脚本所需的 API Key 由 `exec_command` 工具从 `config.yaml` 自动注入为环境变量
 
+---
+
+### Security Warning（重要）
+
+**`exec_command` 工具特殊说明：**
+
+> **⚠️ 警告**：`exec_command` 可以执行任意 shell 命令，**不受 `security:file_access_root` 文件访问限制**。
+>
+> 这是当前系统中权限最高的工具，请谨慎使用。
+> 后续应逐步将其封装为更细粒度的安全工具（如 `git_commit`、`run_npm`、`list_directory` 等），减少直接暴露原始 shell 执行能力。
+
+当前安全策略：
+- 文件读写类操作已通过 `read_file`、`write_file`、`edit_file` 等工具进行限制
+- `exec_command` 仍为全权限状态，用于执行 `git`、`node` 等必要命令
+- 未来规划：增加命令白名单 + 路径沙箱
+
+---
+
 ## 服务器部署
 
 服务器使用 **pm2** 管理进程。
