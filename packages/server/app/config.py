@@ -60,6 +60,9 @@ class CloudMailConfig(BaseModel):
 
 class ToolsConfig(BaseModel):
     """各工具所需的第三方 API 凭证。"""
+    # 文件操作的允许根目录（相对于 PROJECT_ROOT）。
+    # 空字符串 = 整个项目根目录；设为 ".skills" 可限制 agent 只能操作技能文件。
+    file_access_root: str = ""
     qweather: QWeatherConfig = QWeatherConfig()
     serper: SerperConfig = SerperConfig()
     cloud_mail: CloudMailConfig = CloudMailConfig()

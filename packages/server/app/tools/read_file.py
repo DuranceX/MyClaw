@@ -7,13 +7,11 @@
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 from pydantic import BaseModel, Field
 
-from app.config import PROJECT_ROOT
 from app.models import ReadFileResponse
 from app.tools.base import ToolDef
+from app.tools.path_guard import resolve_path
 
 
 class ReadFileInput(BaseModel):
@@ -22,17 +20,9 @@ class ReadFileInput(BaseModel):
     )
 
 
-def _resolve_path(relative_path: str) -> Path:
-    """把仓库相对路径解析为绝对路径，并阻止目录穿越。"""
-    absolute_path = (PROJECT_ROOT / relative_path).resolve()
-    if not absolute_path.is_relative_to(PROJECT_ROOT):
-        raise ValueError(f"Illegal path: {relative_path}")
-    return absolute_path
-
-
 def _execute(input: ReadFileInput) -> ReadFileResponse:
     try:
-        content = _resolve_path(input.file_path).read_text(encoding="utf-8")
+        content = resolve_path(input.file_path).read_text(encoding="utf-8")
         return ReadFileResponse(success=True, file_path=input.file_path, content=content)
     except (ValueError, FileNotFoundError, OSError) as exc:
         return ReadFileResponse(success=False, file_path=input.file_path, error=str(exc))
