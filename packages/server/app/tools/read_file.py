@@ -16,7 +16,12 @@ from app.tools.path_guard import resolve_path
 
 class ReadFileInput(BaseModel):
     file_path: str = Field(
-        description="相对于项目根目录的文件路径，例如 skills/weather/SKILL.md 或 packages/web/package.json"
+        description=(
+            "文件路径。支持两种形式：\n"
+            "1. 相对路径（相对于项目根目录）：如 packages/web/package.json\n"
+            "2. 绝对路径：如 /Users/me/Code/other-project/README.md 或 ~/Code/other-project/README.md\n"
+            "当用户提到项目外的文件时，请使用绝对路径。"
+        )
     )
 
 
@@ -31,7 +36,9 @@ def _execute(input: ReadFileInput) -> ReadFileResponse:
 READ_FILE_TOOL = ToolDef(
     name="read_file",
     description=(
-        "根据相对路径读取项目根目录下的文件内容。"
+        "读取文件内容。支持相对路径（相对于项目根目录）和绝对路径（含 ~ 展开）。"
+        "当用户提到项目外的文件（如 ~/Code/other-project/package.json）时，"
+        "优先使用此工具而非 exec_command cat。"
         "适合查看源代码、配置文件、文档等文本文件。"
     ),
     input_model=ReadFileInput,

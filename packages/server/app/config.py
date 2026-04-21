@@ -58,11 +58,20 @@ class CloudMailConfig(BaseModel):
     token: str = ""
 
 
+class SecurityConfig(BaseModel):
+    """文件访问权限配置。"""
+    # 允许访问的根目录（绝对路径）。
+    # 空字符串 = PROJECT_ROOT（整个项目根目录）。
+    # 填写绝对路径（如 /Users/me/Code）可扩大访问范围。
+    file_access_root: str = ""
+    # 排除列表：不可访问的路径，支持文件和目录。
+    # 支持绝对路径，也支持相对于 file_access_root 的相对路径。
+    # 目录路径末尾加不加 / 均可，例如 "Work"、"Work/" 效果相同。
+    exclude_files: List[str] = Field(default_factory=list)
+
+
 class ToolsConfig(BaseModel):
     """各工具所需的第三方 API 凭证。"""
-    # 文件操作的允许根目录（相对于 PROJECT_ROOT）。
-    # 空字符串 = 整个项目根目录；设为 ".skills" 可限制 agent 只能操作技能文件。
-    file_access_root: str = ""
     qweather: QWeatherConfig = QWeatherConfig()
     serper: SerperConfig = SerperConfig()
     cloud_mail: CloudMailConfig = CloudMailConfig()
@@ -93,6 +102,9 @@ class Settings(BaseSettings):
 
     # 运行时 LLM 配置（由 load_settings 填充，不直接从 env 读）
     llm: LlmConfig = Field(default_factory=LlmConfig)
+
+    # 文件访问权限
+    security: SecurityConfig = Field(default_factory=SecurityConfig)
 
     # 工具类 API 凭证
     tools: ToolsConfig = Field(default_factory=ToolsConfig)

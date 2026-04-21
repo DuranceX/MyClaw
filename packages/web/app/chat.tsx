@@ -34,6 +34,7 @@ import { DefaultChatTransport } from 'ai';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 import { ProgressTrail } from './components/chat/ProgressTrail';
 import { ToolCard } from './components/chat/ToolCard';
@@ -319,8 +320,8 @@ export default function Chat() {
                     )}
 
                     {hasTextCard && (
-                      <div className="prose prose-sm max-w-none rounded-2xl rounded-bl-sm bg-white px-4 py-2.5 leading-relaxed text-gray-800 shadow-sm dark:prose-invert dark:bg-zinc-800 dark:text-zinc-100">
-                        <ReactMarkdown>{textContent}</ReactMarkdown>
+                      <div className="prose prose-sm max-w-none overflow-x-auto rounded-2xl rounded-bl-sm bg-white px-4 py-2.5 leading-relaxed text-gray-800 shadow-sm dark:prose-invert dark:bg-zinc-800 dark:text-zinc-100">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{textContent}</ReactMarkdown>
                       </div>
                     )}
 
