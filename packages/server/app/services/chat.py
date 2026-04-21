@@ -287,7 +287,7 @@ def stream_chat(payload: ChatRequest) -> Iterable[bytes]:
                 continue
 
             yield _sse_line({"type": "start-step"})
-            yield from _emit_text_chunks(text)
+            yield from _emit_text_chunks(text if text else "（模型返回了空响应）")
             yield _sse_line({"type": "finish-step"})
             yield _sse_line({"type": "finish", "finishReason": finish_reason})
             return
