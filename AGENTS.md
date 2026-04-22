@@ -120,6 +120,12 @@ tools:
 
 ---
 
+## 服务器配置说明
+
+服务器上的 `config.yaml` 使用 **grok** provider，并配置了代理。本地开发环境的 `config.yaml` 使用 bilibili provider，两者配置不同。排查服务器问题时，不要以本地 bilibili provider 的配置作为参考。
+
+---
+
 ## 服务器部署
 
 服务器使用 **pm2** 管理进程。
