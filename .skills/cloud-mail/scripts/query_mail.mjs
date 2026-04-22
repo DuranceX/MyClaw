@@ -44,58 +44,65 @@ if (params.size) body.size = Number(params.size);
 if (params.startTime) body.startTime = params.startTime;  // 格式：YYYY-MM-DD HH:mm:ss
 if (params.endTime)   body.endTime   = params.endTime;
 
-// ── 发起请求 ──────────────────────────────────────────────────────────────────
-const BASE_URL = "https://mail.starnight.top";
+// ── 执行主逻辑 ───────────────────────────────────────────────────────────────
+(async () => {
+  const BASE_URL = "https://mail.starnight.top";
 
-try {
-  const res = await fetch(`${BASE_URL}/api/public/emailList`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: token,
-    },
-    body: JSON.stringify(body),
-  });
+  try {
+    const res = await fetch(`${BASE_URL}/api/public/emailList`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: token,
+      },
+      body: JSON.stringify(body),
+    });
 
-  const json = await res.json();
+    const json = await res.json();
 
-  if (json.code !== 200) {
-    console.error(`❌ API 返回错误 [${json.code}]：${json.message}`);
+    if (json.code !== 200) {
+      console.error(`❌ API 返回错误 [${json.code}]：${json.message}`);
+      process.exit(1);
+    }
+
+    let emails = json.data ?? [];
+
+    if (emails.length === 0) {
+      console.log("📭 未找到符合条件的邮件");
+      process.exit(0);
+    }
+
+    // ── 格式化输出 ──────────────────────────────────────────────────────────────
+    console.log(`📬 共找到 ${emails.length} 封邮件`);
+    console.log("─".repeat(50));
+
+    for (let i = 0; i < emails.length; i++) {
+      const m = emails[i];
+      const typeLabel = m.type === 0 ? "收件" : "发件";
+      const delLabel  = m.isDel === 0 ? "" : " [已删除]";
+
+      console.log(`[${i + 1}] ${typeLabel}${delLabel}`);
+      console.log(`    来自：${m.sendName} <${m.sendEmail}>`);
+      console.log(`    收件人： <${m.toEmail}>`);  // 简化收件人显示，兼容不同数据结构
+      console.log(`    主题：${m.subject}`);
+      console.log(`    时间：${m.createTime} (UTC)`);
+
+      // 改进内容预览：优先 text，清理 HTML 并限制长度
+      let preview = m.text || "";
+      if (!preview && m.content) {
+        preview = m.content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      }
+      if (preview) {
+        const truncated = preview.length > 180 ? preview.slice(0, 180) + "…" : preview;
+        console.log(`    内容：${truncated}`);
+      }
+      if (i < emails.length - 1) console.log("");
+    }
+
+    console.log("─".repeat(50));
+    process.exit(0);  // 显式正常退出，避免 core dump
+  } catch (err) {
+    console.error("❌ 请求失败：", err.message);
     process.exit(1);
   }
-
-  let emails = json.data ?? [];
-
-  if (emails.length === 0) {
-    console.log("📭 未找到符合条件的邮件");
-    process.exit(0);
-  }
-
-  // ── 格式化输出 ──────────────────────────────────────────────────────────────
-  console.log(`📬 共找到 ${emails.length} 封邮件`);
-  console.log("─".repeat(50));
-
-  for (let i = 0; i < emails.length; i++) {
-    const m = emails[i];
-    const typeLabel = m.type === 0 ? "收件" : "发件";
-    const delLabel  = m.isDel === 0 ? "" : " [已删除]";
-
-    console.log(`[${i + 1}] ${typeLabel}${delLabel}`);
-    console.log(`    来自：${m.sendName} <${m.sendEmail}>`);
-    console.log(`    收件人：${m.toName} <${m.toEmail}>`);
-    console.log(`    主题：${m.subject}`);
-    console.log(`    时间：${m.createTime} (UTC)`);
-    // 优先展示纯文本，HTML 内容太长时截断
-    const preview = (m.text || m.content?.replace(/<[^>]+>/g, "") || "").trim();
-    if (preview) {
-      const truncated = preview.length > 200 ? preview.slice(0, 200) + "…" : preview;
-      console.log(`    内容：${truncated}`);
-    }
-    if (i < emails.length - 1) console.log("");
-  }
-
-  console.log("─".repeat(50));
-} catch (err) {
-  console.error("❌ 请求失败：", err.message);
-  process.exit(1);
-}
+})();
