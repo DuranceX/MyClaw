@@ -87,15 +87,26 @@ if (params.endTime)   body.endTime   = params.endTime;
       console.log(`    主题：${m.subject}`);
       console.log(`    时间：${m.createTime} (UTC)`);
 
-      // 改进内容预览：优先 text，清理 HTML 并限制长度
-      let preview = m.text || "";
-      if (!preview && m.content) {
-        preview = m.content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      // 输出完整邮件内容（技能设计修改：取消所有截断逻辑）
+      // 优先使用纯文本字段 m.text；若无则从 HTML 清理后输出完整正文
+      let fullContent = m.text || "";
+      if (!fullContent && m.content) {
+        fullContent = m.content
+          .replace(/<br\s*\/?>/gi, "\n")
+          .replace(/<\/?(p|div|h[1-6])[^>]*>/gi, "\n\n")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
       }
-      if (preview) {
-        const truncated = preview.length > 180 ? preview.slice(0, 180) + "…" : preview;
-        console.log(`    内容：${truncated}`);
+
+      if (fullContent) {
+        console.log(`    内容：`);
+        console.log(fullContent);
+        console.log("\n" + "─".repeat(30) + " 完整内容结束 " + "─".repeat(30));
+      } else {
+        console.log(`    内容：（无正文）`);
       }
+
       if (i < emails.length - 1) console.log("");
     }
 

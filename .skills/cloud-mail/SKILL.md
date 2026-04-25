@@ -60,20 +60,27 @@ node .skills/cloud-mail/scripts/query_mail.mjs --sendEmail noreply@github.com --
 |--------|------|
 | `CLOUD_MAIL_TOKEN` | cloud-mail API 身份令牌，由后端从 `config.yaml` 自动注入 |
 
-## 输出格式
+## 输出格式（已修改：取消内容截断）
+
+现在默认输出**完整邮件正文**（不再限制180字符预览）。
 
 ```
-📬 共找到 3 封邮件
-─────────────────────────────────────
-[1] 来自：hello <hello@example.com>
-    收件人：admin@example.com
-    主题：Hello world
-    时间：2099-12-30 23:59:59 (UTC)
-    内容：Hello world
+📬 共找到 1 封邮件
+──────────────────────────────────────────────────
+[1] 收件
+    来自：NextDraft <managingeditor@substack.com>
+    收件人： <ai@starnight.top>
+    主题：Life is an Information Superhighway
+    时间：2026-04-24 19:10:51 (UTC)
+    内容：
+    View this post on the web at ...
 
-[2] ...
-─────────────────────────────────────
+    （以下为完整正文，长度不限）
+    ────────────────────────────── 完整内容结束 ──────────────────────────────
+──────────────────────────────────────────────────
 ```
+
+**重要变更**：移除了内容预览截断逻辑。现在 `query_mail.mjs` 会优先输出 `m.text`，若无则清理 HTML 后输出完整正文。适合用户需要“完整内容翻译版”等场景。
 
 未找到邮件时，告知用户并建议调整搜索条件。
 Token 缺失时，提示用户在 `config.yaml` 中配置 `tools.cloud_mail.token`。
