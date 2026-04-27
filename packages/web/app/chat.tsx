@@ -283,7 +283,7 @@ export default function Chat() {
                   <div className="mr-2 mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-500 text-sm text-white">AI</div>
                   <div className="max-w-[85%] md:max-w-[75%] rounded-2xl rounded-bl-sm border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm dark:border-red-900 dark:bg-red-950/60 dark:text-red-200">
                     <div className="mb-1 font-medium">请求失败</div>
-                    <div className="break-words whitespace-pre-wrap">{errText}</div>
+                    <div className="max-h-40 overflow-y-auto break-words whitespace-pre-wrap">{errText}</div>
                   </div>
                 </div>
               );
