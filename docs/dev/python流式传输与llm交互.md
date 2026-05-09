@@ -313,11 +313,123 @@ Python 侧的处理过程会接近这样：
 
 这次迁移已经完成主链路迁移，但后面还有一些自然的演进方向：
 
-- 把 `_call_model()` 从手写 HTTP 请求抽象成单独的 provider 层
-- 支持真正按 token 颗粒度输出 `text-delta`
+- 把 `_stream_model()` 从手写 HTTP 请求抽象成单独的 provider 层
 - 支持更多工具类型，而不只是 `read_file` 和 `exec_command`
 - 给工具调用和模型请求加更完整的日志
 - 把错误类型区分得更细，前端展示更友好
+
+---
+
+## 升级：从非流式改为真正的流式请求
+
+> 本节记录后续对 `_call_model()` 的重构，将其改为真正的流式请求。
+
+### 问题背景
+
+原始实现中，`_call_model()` 使用的是普通的同步 POST 请求：
+
+```python
+with httpx.Client(proxy=proxy, timeout=60) as client:
+    resp = client.post(...)
+resp.raise_for_status()
+return resp.json()
+```
+
+这意味着 Python 会等待模型把**完整响应**生成完毕后，才开始处理和转发。这带来两个问题：
+
+1. **超时风险**：对话上下文越长，模型生成时间越长，60s 的硬编码超时很容易触发。
+2. **用户体验差**：前端要等到模型全部生成完才能看到第一个字，没有逐字流出的效果。
+
+### 改动：_call_model → _stream_model
+
+将 `_call_model()` 重写为 `_stream_model()`，改为流式请求：
+
+```python
+def _stream_model(messages: List[Dict[str, Any]]) -> Iterator[Dict[str, Any]]:
+    payload = {
+        ...
+        "stream": True,   # 关键：告诉模型接口开启流式输出
+    }
+
+    # connect_timeout=30s，read_timeout=None（流式不限单次读超时）
+    timeout = httpx.Timeout(connect=30, read=None, write=30, pool=10)
+
+    with httpx.Client(proxy=proxy, timeout=timeout) as client:
+        with client.stream("POST", url, json=payload, headers=...) as resp:
+            for line in resp.iter_lines():
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    return
+                yield json.loads(data)   # 每个 chunk 解析后立即 yield
+```
+
+几个关键点：
+
+- **`"stream": True`**：请求体里加这个字段，模型接口就会以 SSE 格式逐 chunk 返回，而不是等全部生成完再返回。
+- **`client.stream()`**：httpx 的流式上下文管理器，不会等响应体全部下载完，而是边收边处理。
+- **`resp.iter_lines()`**：逐行读取响应体，每行是一条 `data: {...}` 格式的 SSE 事件。
+- **超时策略**：连接超时 30s，读超时设为 `None`。读超时不能设置，因为流式响应中两个 chunk 之间的间隔可能很长，设了读超时会误触发。
+
+### 改动：stream_chat() 中的实时 delta 输出
+
+原来 `stream_chat()` 是等 `_call_model()` 返回完整结果后，再一次性发出文本事件：
+
+```python
+response = _call_model(messages)
+text = response["choices"][0]["message"]["content"]
+yield from _emit_text_chunks(text)   # 一次性发出全部文本
+```
+
+改为流式后，每收到一个 chunk 就立即 yield 给前端：
+
+```python
+for chunk in _stream_model(messages):
+    delta = chunk["choices"][0]["delta"]
+    content = delta.get("content") or ""
+    if content:
+        if not text_started:
+            yield _sse_line({"type": "text-start", "id": text_id})
+            text_started = True
+        accumulated_text += content
+        yield _sse_line({"type": "text-delta", "id": text_id, "delta": content})
+```
+
+这样前端就能看到文字逐步出现，而不是等待后一次性显示。
+
+### 工具调用 delta 的聚合
+
+流式模式下，工具调用的参数不是一次性返回的，而是分多个 chunk 逐步传输。每个 chunk 里的 `tool_calls` 只包含增量片段，需要按 `index` 聚合成完整的工具调用：
+
+```python
+tool_calls_map: Dict[str, Dict[str, Any]] = {}  # index -> 聚合中的 tool_call
+
+for tc_delta in (delta.get("tool_calls") or []):
+    idx = str(tc_delta.get("index", 0))
+    if idx not in tool_calls_map:
+        tool_calls_map[idx] = {"id": "", "type": "function", "function": {"name": "", "arguments": ""}}
+    entry = tool_calls_map[idx]
+    if tc_delta.get("id"):
+        entry["id"] = tc_delta["id"]
+    fn = tc_delta.get("function") or {}
+    if fn.get("name"):
+        entry["function"]["name"] += fn["name"]
+    if fn.get("arguments"):
+        entry["function"]["arguments"] += fn["arguments"]
+```
+
+等整个流结束后，再从 `tool_calls_map` 里取出完整的工具调用列表，执行工具。
+
+### 改动前后对比
+
+| 维度 | 改动前 | 改动后 |
+|------|--------|--------|
+| 请求方式 | 同步 POST，等待完整响应 | 流式 POST，逐 chunk 处理 |
+| 超时策略 | 总超时 60s | 连接超时 30s，读超时不限 |
+| 文本输出 | 等全部生成完再发 | 每个 token 立即转发 |
+| 工具调用 | 直接从完整响应取 | 流式聚合后再执行 |
+| 超时风险 | 长对话容易触发 60s 超时 | 不受生成时长影响 |
 
 ## 小结
 

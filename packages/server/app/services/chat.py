@@ -166,7 +166,8 @@ def _chat_completions_url() -> str:
     return f"{base_url}/chat/completions"
 
 
-def _call_model(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _stream_model(messages: List[Dict[str, Any]]) -> Iterator[Dict[str, Any]]:
+    """流式调用模型，逐个 yield SSE chunk（已解析为 dict）。"""
     api_key = settings.llm.api_key
     if not api_key:
         raise RuntimeError("LLM api_key is not configured. Set llm.provider in config.yaml.")
@@ -176,32 +177,40 @@ def _call_model(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         "temperature": 0.2,
         "messages": messages,
         "tools": registry.get_schemas(),
+        "stream": True,
     }
 
     proxy = settings.llm.proxy
     print(f"Calling model at: {_chat_completions_url()}")
 
-    try:
-        with httpx.Client(proxy=proxy, timeout=60) as client:
-            resp = client.post(
-                _chat_completions_url(),
-                json=payload,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                },
-            )
-        resp.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        raise RuntimeError(f"LLM request failed: {exc.response.status_code} {exc.response.text}") from exc
-    except httpx.TimeoutException as exc:
-        raise RuntimeError("LLM 调用超时（60s），请检查网络或代理配置") from exc
-    except httpx.RequestError as exc:
-        raise RuntimeError(f"LLM request failed: {exc}") from exc
+    # connect_timeout=30s，read_timeout=None（流式不限单次读超时）
+    timeout = httpx.Timeout(connect=30, read=None, write=30, pool=10)
 
     try:
-        return resp.json()
-    except Exception as exc:
-        raise RuntimeError("LLM returned invalid JSON.") from exc
+        with httpx.Client(proxy=proxy, timeout=timeout) as client:
+            with client.stream(
+                "POST",
+                _chat_completions_url(),
+                json=payload,
+                headers={"Authorization": f"Bearer {api_key}"},
+            ) as resp:
+                if resp.status_code != 200:
+                    body = resp.read().decode()
+                    raise RuntimeError(f"LLM request failed: {resp.status_code} {body}")
+                for line in resp.iter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        return
+                    try:
+                        yield json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+    except httpx.ConnectTimeout as exc:
+        raise RuntimeError("LLM 连接超时（30s），请检查网络或代理配置") from exc
+    except httpx.RequestError as exc:
+        raise RuntimeError(f"LLM request failed: {exc}") from exc
 
 
 def _sse_line(chunk: Dict[str, Any]) -> bytes:
@@ -226,23 +235,59 @@ def stream_chat(payload: ChatRequest) -> Iterable[bytes]:
         messages.extend(convert_ui_messages_to_model_messages(payload.messages))
 
         for _ in range(MAX_STEPS):
-            response = _call_model(messages)
-            choice = ((response.get("choices") or [{}])[0]).get("message") or {}
-            finish_reason = ((response.get("choices") or [{}])[0]).get("finish_reason") or "stop"
-            tool_calls = choice.get("tool_calls") or []
-            text = choice.get("content") or ""
+            # 聚合流式 chunk，同时实时 yield 文本 delta
+            text_id = f"text-{uuid.uuid4().hex}"
+            text_started = False
+            accumulated_text = ""
+            tool_calls_map: Dict[str, Dict[str, Any]] = {}  # index -> tool_call
+            finish_reason = "stop"
+
+            yield _sse_line({"type": "start-step"})
+
+            for chunk in _stream_model(messages):
+                choice = ((chunk.get("choices") or [{}])[0])
+                finish_reason = choice.get("finish_reason") or finish_reason
+                delta = choice.get("delta") or {}
+
+                # 文本 delta
+                content = delta.get("content") or ""
+                if content:
+                    if not text_started:
+                        yield _sse_line({"type": "text-start", "id": text_id})
+                        text_started = True
+                    accumulated_text += content
+                    yield _sse_line({"type": "text-delta", "id": text_id, "delta": content})
+
+                # 工具调用 delta（按 index 聚合）
+                for tc_delta in (delta.get("tool_calls") or []):
+                    idx = str(tc_delta.get("index", 0))
+                    if idx not in tool_calls_map:
+                        tool_calls_map[idx] = {
+                            "id": tc_delta.get("id", ""),
+                            "type": "function",
+                            "function": {"name": "", "arguments": ""},
+                        }
+                    entry = tool_calls_map[idx]
+                    if tc_delta.get("id"):
+                        entry["id"] = tc_delta["id"]
+                    fn = tc_delta.get("function") or {}
+                    if fn.get("name"):
+                        entry["function"]["name"] += fn["name"]
+                    if fn.get("arguments"):
+                        entry["function"]["arguments"] += fn["arguments"]
+
+            if text_started:
+                yield _sse_line({"type": "text-end", "id": text_id})
+
+            tool_calls = [tool_calls_map[k] for k in sorted(tool_calls_map)]
 
             if tool_calls:
-                yield _sse_line({"type": "start-step"})
-                # 先把 assistant 的 tool call 写入历史，再执行工具，
-                # 这样下一轮模型请求拿到的上下文才是完整的。
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "content": text,
-                        "tool_calls": tool_calls,
-                    }
-                )
+                # 把 assistant 的 tool call 写入历史
+                messages.append({
+                    "role": "assistant",
+                    "content": accumulated_text,
+                    "tool_calls": tool_calls,
+                })
 
                 for tool_call in tool_calls:
                     function = tool_call.get("function") or {}
@@ -255,45 +300,37 @@ def stream_chat(payload: ChatRequest) -> Iterable[bytes]:
                     except json.JSONDecodeError:
                         tool_input = {}
 
-                    # 输出与 AI SDK 原生路由一致的工具事件，
-                    # 这样现有前端聊天 UI 就不需要跟着改。
-                    yield _sse_line(
-                        {
-                            "type": "tool-input-available",
-                            "toolCallId": tool_call_id,
-                            "toolName": tool_name,
-                            "input": tool_input,
-                        }
-                    )
+                    yield _sse_line({
+                        "type": "tool-input-available",
+                        "toolCallId": tool_call_id,
+                        "toolName": tool_name,
+                        "input": tool_input,
+                    })
 
                     output_type, output_value = registry.execute(tool_name, tool_input)
-                    yield _sse_line(
-                        {
-                            "type": output_type,
-                            "toolCallId": tool_call_id,
-                            **({"output": output_value} if output_type == "tool-output-available" else {"errorText": output_value}),
-                        }
-                    )
+                    yield _sse_line({
+                        "type": output_type,
+                        "toolCallId": tool_call_id,
+                        **({"output": output_value} if output_type == "tool-output-available" else {"errorText": output_value}),
+                    })
 
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tool_call_id,
-                            "content": _serialize_json(output_value),
-                        }
-                    )
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call_id,
+                        "content": _serialize_json(output_value),
+                    })
 
                 yield _sse_line({"type": "finish-step"})
                 continue
 
-            yield _sse_line({"type": "start-step"})
-            yield from _emit_text_chunks(text if text else "（模型返回了空响应）")
+            # 纯文本回复
+            if not text_started:
+                yield from _emit_text_chunks("（模型返回了空响应）")
             yield _sse_line({"type": "finish-step"})
             yield _sse_line({"type": "finish", "finishReason": finish_reason})
             return
 
         # 防止模型反复请求工具导致循环跑不出来。
-        yield _sse_line({"type": "start-step"})
         yield from _emit_text_chunks("本轮工具调用次数已达上限，请缩小问题范围后再试。")
         yield _sse_line({"type": "finish-step"})
         yield _sse_line({"type": "finish", "finishReason": "length"})
