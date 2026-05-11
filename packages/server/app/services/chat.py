@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, Iterator, List
 
 import httpx
@@ -13,6 +14,36 @@ from app.tools import registry
 
 
 MAX_STEPS = 50
+
+
+# ── 全局 usage 统计 ───────────────────────────────────────────────────────────
+
+@dataclass
+class UsageStats:
+    """累计 token 用量与请求次数，进程生命周期内持续累加。"""
+    total_requests: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+    @property
+    def total_tokens(self) -> int:
+        return self.prompt_tokens + self.completion_tokens
+
+    def record(self, usage: Dict[str, Any]) -> None:
+        self.total_requests += 1
+        self.prompt_tokens += usage.get("prompt_tokens", 0)
+        self.completion_tokens += usage.get("completion_tokens", 0)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "total_requests": self.total_requests,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+        }
+
+
+usage_stats = UsageStats()
 
 # 工具 schema 和执行逻辑已迁移到 app/tools/ 目录，由 registry 统一管理。
 # 参考 Claude Code 的 buildTool 模式：每个工具是独立的自描述对象，
@@ -204,7 +235,11 @@ def _stream_model(messages: List[Dict[str, Any]]) -> Iterator[Dict[str, Any]]:
                     if data == "[DONE]":
                         return
                     try:
-                        yield json.loads(data)
+                        chunk = json.loads(data)
+                        # 部分 provider 在最后一个 chunk 里附带 usage 统计
+                        if chunk.get("usage"):
+                            usage_stats.record(chunk["usage"])
+                        yield chunk
                     except json.JSONDecodeError:
                         continue
     except httpx.ConnectTimeout as exc:

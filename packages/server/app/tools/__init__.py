@@ -23,7 +23,6 @@
 from app.tools.base import ToolRegistry
 from app.tools.exec_command import EXEC_COMMAND_TOOL
 from app.tools.read_file import READ_FILE_TOOL
-from app.tools.error_test import ERROR_TEST_TOOL
 from app.tools.grep import GREP_TOOL
 from app.tools.glob import GLOB_TOOL
 from app.tools.edit_file import EDIT_FILE_TOOL
@@ -32,7 +31,6 @@ from app.tools.write_file import WRITE_FILE_TOOL
 registry = ToolRegistry()
 registry.register(READ_FILE_TOOL)
 registry.register(EXEC_COMMAND_TOOL)
-registry.register(ERROR_TEST_TOOL)
 registry.register(GREP_TOOL)
 registry.register(GLOB_TOOL)
 registry.register(EDIT_FILE_TOOL)
