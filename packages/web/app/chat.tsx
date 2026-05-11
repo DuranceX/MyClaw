@@ -75,6 +75,13 @@ function newSessionId() {
 
 export default function Chat() {
   const [input, setInput] = useState('');
+  // 历史输入记录，用于上下键切换
+  const [inputHistory, setInputHistory] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('chat-input-history') ?? '[]');
+    } catch { return []; }
+  });
+  const [historyIndex, setHistoryIndex] = useState(-1);
 
   /**
    * 当前激活的会话 ID。
@@ -101,6 +108,14 @@ export default function Chat() {
 
   // 输入变化时重置选中项
   useEffect(() => { setSelectedSuggestion(-1); }, [input]);
+
+  // input 变化时同步 textarea 高度（含历史切换场景）
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [input]);
 
   const { messages, sendMessage, setMessages, status, stop } = useChat({
     // AI SDK v6 新版本将 body/headers 等 HTTP 配置移到了 transport 层
@@ -161,6 +176,7 @@ export default function Chat() {
   }, []);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isLoading = status === 'streaming' || status === 'submitted';
   const currentSessionMessages = getCurrentSessionMessages(messages);
   const progressStages = getProgressStages(currentSessionMessages);
@@ -565,31 +581,100 @@ export default function Chat() {
               }
               const text = input;
               setInput('');
+              setHistoryIndex(-1);
+              if (textareaRef.current) { textareaRef.current.style.height = 'auto'; }
+              if (text.trim()) setInputHistory(prev => {
+                const next = [text, ...prev.filter(h => h !== text).slice(0, 48)];
+                localStorage.setItem('chat-input-history', JSON.stringify(next));
+                return next;
+              });
               if (await handleCommand(text)) return;
               sendMessage({ text });
             }}
           >
-            <input
-              className="flex-1 rounded-xl bg-gray-100 px-4 py-2.5 text-sm text-gray-800 outline-none transition placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-400 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+            <textarea
+              ref={textareaRef}
+              rows={1}
+              className="flex-1 resize-none rounded-xl bg-gray-100 px-4 py-2.5 text-sm text-gray-800 outline-none transition placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-400 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+              style={{ maxHeight: '8rem', overflowY: 'auto' }}
               value={input}
               placeholder="输入消息或 / 使用命令..."
               onChange={event => setInput(event.currentTarget.value)}
-              onKeyDown={event => {
-                if (!showSuggestions) return;
-                if (event.key === 'ArrowDown') {
+              onKeyDown={async event => {
+                // 命令补全导航
+                if (showSuggestions) {
+                  if (event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    setSelectedSuggestion(i => Math.min(i + 1, suggestions.length - 1));
+                    return;
+                  }
+                  if (event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    setSelectedSuggestion(i => Math.max(i - 1, -1));
+                    return;
+                  }
+                  if (event.key === 'Tab' || (event.key === 'Enter' && selectedSuggestion >= 0)) {
+                    event.preventDefault();
+                    const cmd = suggestions[selectedSuggestion >= 0 ? selectedSuggestion : 0];
+                    setInput(`/${cmd.name}${cmd.args ? ' ' : ''}`);
+                    setSelectedSuggestion(-1);
+                    return;
+                  }
+                  if (event.key === 'Escape') {
+                    event.preventDefault();
+                    setSelectedSuggestion(-1);
+                    setInput('');
+                    return;
+                  }
+                }
+
+                // Shift+Enter：换行
+                if (event.key === 'Enter' && event.shiftKey) {
+                  return; // 让默认行为插入换行
+                }
+
+                // Enter（无 Shift）：提交
+                if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault();
-                  setSelectedSuggestion(i => Math.min(i + 1, suggestions.length - 1));
-                } else if (event.key === 'ArrowUp') {
-                  event.preventDefault();
-                  setSelectedSuggestion(i => Math.max(i - 1, -1));
-                } else if (event.key === 'Tab' || (event.key === 'Enter' && selectedSuggestion >= 0)) {
-                  event.preventDefault();
-                  const cmd = suggestions[selectedSuggestion >= 0 ? selectedSuggestion : 0];
-                  setInput(`/${cmd.name}${cmd.args ? ' ' : ''}`);
-                  setSelectedSuggestion(-1);
-                } else if (event.key === 'Escape') {
-                  setSelectedSuggestion(-1);
+                  if (isLoading) { stop(); return; }
+                  if (!input.trim()) return;
+                  const text = input;
                   setInput('');
+                  setHistoryIndex(-1);
+                  if (textareaRef.current) { textareaRef.current.style.height = 'auto'; }
+                  if (text.trim()) setInputHistory(prev => {
+                const next = [text, ...prev.filter(h => h !== text).slice(0, 48)];
+                localStorage.setItem('chat-input-history', JSON.stringify(next));
+                return next;
+              });
+                  if (await handleCommand(text)) return;
+                  sendMessage({ text });
+                  return;
+                }
+
+                // 上下键切换历史：判断光标是否在首行/末行
+                if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                  const el = textareaRef.current;
+                  if (!el) return;
+                  const cursor = el.selectionStart;
+                  const firstNewline = input.indexOf('\n');
+                  const lastNewline = input.lastIndexOf('\n');
+                  const onFirstLine = firstNewline === -1 || cursor <= firstNewline;
+                  const onLastLine = lastNewline === -1 || cursor > lastNewline;
+
+                  if (event.key === 'ArrowUp' && onFirstLine) {
+                    event.preventDefault();
+                    const next = Math.min(historyIndex + 1, inputHistory.length - 1);
+                    if (next !== historyIndex) {
+                      setHistoryIndex(next);
+                      setInput(inputHistory[next] ?? '');
+                    }
+                  } else if (event.key === 'ArrowDown' && onLastLine && historyIndex >= 0) {
+                    event.preventDefault();
+                    const next = historyIndex - 1;
+                    setHistoryIndex(next);
+                    setInput(next < 0 ? '' : inputHistory[next]);
+                  }
                 }
               }}
             />
