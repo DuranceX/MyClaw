@@ -601,6 +601,9 @@ export default function Chat() {
               placeholder="输入消息或 / 使用命令..."
               onChange={event => setInput(event.currentTarget.value)}
               onKeyDown={async event => {
+                // IME 组合输入期间忽略所有快捷键（避免中文输入法确认时误触发）
+                if (event.nativeEvent.isComposing) return;
+
                 // 命令补全导航
                 if (showSuggestions) {
                   if (event.key === 'ArrowDown') {
