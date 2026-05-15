@@ -150,6 +150,37 @@ def get_usage():
     }
 
 
+# 支持余额查询的 provider 及其端点
+_BALANCE_ENDPOINTS: Dict[str, str] = {
+    "deepseek": "https://api.deepseek.com/user/balance",
+}
+
+
+@app.get("/api/balance")
+def get_balance():
+    """查询当前 provider 的账户余额（如果支持）。"""
+    from app.config import settings as _settings
+    import httpx as _httpx
+
+    provider = _settings.llm.provider
+    endpoint = _BALANCE_ENDPOINTS.get(provider)
+    if not endpoint:
+        raise HTTPException(status_code=404, detail=f"Provider '{provider}' 暂无可用的余额查询接口")
+
+    try:
+        api_key = _settings.llm.api_key
+        proxy = _settings.llm.proxy or None
+        with _httpx.Client(proxy=proxy, timeout=10) as client:
+            resp = client.get(endpoint, headers={"Authorization": f"Bearer {api_key}"})
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"余额接口返回 HTTP {resp.status_code}")
+        return {"provider": provider, "data": resp.json()}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
 @app.post("/api/chat")
 def chat(payload: ChatRequest):
     """通过 Python 后端统一处理 LLM 调用、工具执行和流式消息输出。"""

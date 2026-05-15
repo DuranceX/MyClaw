@@ -12,6 +12,7 @@ const nextConfig: NextConfig = {
       { source: '/api/models',        destination: `${BACKEND}/api/models` },
       { source: '/api/model',         destination: `${BACKEND}/api/model` },
       { source: '/api/usage',         destination: `${BACKEND}/api/usage` },
+      { source: '/api/balance',       destination: `${BACKEND}/api/balance` },
     ];
   },
 };
